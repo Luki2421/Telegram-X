@@ -786,10 +786,11 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
 
     TdApi.Message topMessage = top.getMessage();
     // region @MadeByLLM("gpt-6-astra", id = "forum-topics", ref = "PR #1095")
-    if (!Td.equalsTo(
-      topMessage.topicId,
-      msg.topicId
-    ) || top.headerDisabled() || top.isSponsoredMessage() != isSponsoredMessage() ||
+    // region @MadeByLLM("gpt-6", id = "01a1e663-9e2d-7733-a6ce-2373c7eceaa5")
+    boolean canMergeTopics = MessageTopics.canMergeMessages(topMessage.topicId, msg.topicId);
+    // endregion
+    if (!canMergeTopics || top.headerDisabled() ||
+      top.isSponsoredMessage() != isSponsoredMessage() ||
       (flags & FLAG_SHOW_BADGE) != 0 || !tdlib.isSameSender(topMessage, msg) || !TD.isSameSource(
       topMessage,
       msg,

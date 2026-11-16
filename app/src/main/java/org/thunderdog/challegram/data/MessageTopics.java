@@ -24,6 +24,21 @@ public final class MessageTopics {
   private MessageTopics () {
   }
 
+  @me.vkryl.annotation.MadeByLLM(value = "gpt-6", id = "01a1e663-9e2d-7733-a6ce-2373c7eceaa5")
+  public static boolean canMergeMessages (
+    @Nullable TdApi.MessageTopic topicId,
+    @Nullable TdApi.MessageTopic otherTopicId
+  ) {
+    // Reply threads share the regular chat timeline; they aren't separate forum topics.
+    if (topicId instanceof TdApi.MessageTopicThread) {
+      topicId = null;
+    }
+    if (otherTopicId instanceof TdApi.MessageTopicThread) {
+      otherTopicId = null;
+    }
+    return Td.equalsTo(topicId, otherTopicId);
+  }
+
   @Nullable
   public static TdApi.MessageTopic effectiveTopic (
     @Nullable ThreadInfo threadInfo,
