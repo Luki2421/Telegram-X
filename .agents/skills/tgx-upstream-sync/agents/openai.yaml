@@ -1,0 +1,4 @@
+interface:
+  display_name: "Integrate Telegram X Upstream"
+  short_description: "Integrate upstream into main with local commits"
+  default_prompt: "Use $tgx-upstream-sync to integrate the requested upstream changes directly into main, preserve fork adaptations, validate, and commit locally without pushing or opening a PR."
