@@ -90,6 +90,16 @@ public final class ChatRailView
     list.setClipToPadding(false);
     list.setVerticalScrollBarEnabled(false);
     list.setContentDescription(Lang.getString(R.string.Chats));
+    // Draw inside the RecyclerView so Android stretches the indicator with its rows.
+    list.addItemDecoration(new RecyclerView.ItemDecoration() {
+      @Override public void onDrawOver (
+        @NonNull Canvas canvas,
+        @NonNull RecyclerView parent,
+        @NonNull RecyclerView.State state
+      ) {
+        drawSelection(canvas);
+      }
+    });
     addView(
       list,
       new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -99,7 +109,7 @@ public final class ChatRailView
       new RecyclerView.OnScrollListener() {
         @Override public void onScrolled (@NonNull RecyclerView view, int dx, int dy) {
           selectionFromY -= dy;
-          invalidate();
+          list.invalidate();
           loadMore();
         }
       }
@@ -168,6 +178,7 @@ public final class ChatRailView
     setBackgroundColor(Theme.backgroundColor());
     // Rows, avatars and counters resolve their colors at draw time, without rebinding data.
     Views.invalidateChildren(list);
+    list.invalidate();
   }
   // endregion
 
@@ -199,17 +210,16 @@ public final class ChatRailView
       selectionAnimator.setInterpolator(AnimatorUtils.DECELERATE_INTERPOLATOR);
       selectionAnimator.addUpdateListener(animation -> {
         selectionProgress = (float) animation.getAnimatedValue();
-        invalidate();
+        list.invalidate();
       });
       selectionAnimator.start();
     }
-    invalidate();
+    list.invalidate();
     // Deliberately do not insert or bringToTop a deep-linked chat outside this folder.
   }
 
-  // region @MadeByLLM("gpt-6.1-sol", id = "forum-rail-motion")
-  @Override protected void dispatchDraw (Canvas canvas) {
-    super.dispatchDraw(canvas);
+  // region @MadeByLLM("GPT-6", id = "forum-rail-overscroll")
+  private void drawSelection (Canvas canvas) {
     int index = chats.indexOf(selectedChat);
     View row = index >= 0 ? layout.findViewByPosition(index) : null;
     if (row == null) {
@@ -217,15 +227,15 @@ public final class ChatRailView
       return;
     }
     int radius = ((RailRow) row).avatarRadius();
-    float targetY = list.getTop() + row.getTop() + row.getHeight() / 2f - radius;
+    float targetY = row.getTop() + row.getHeight() / 2f - radius;
     renderedSelectionY = selectionProgress < 1f ?
       selectionFromY + (targetY - selectionFromY) * selectionProgress : targetY;
     float width = Screen.dp(3);
-    float left = Lang.rtl() ? getWidth() - width : 0;
+    float left = Lang.rtl() ? list.getWidth() - width : 0;
     selectionPaint.setColor(Theme.getColor(ColorId.profileSectionActive));
     int save = canvas.save();
-    canvas.clipRect(0, list.getTop() + list.getPaddingTop(), getWidth(),
-      list.getBottom() - list.getPaddingBottom());
+    canvas.clipRect(0, list.getPaddingTop(), list.getWidth(),
+      list.getHeight() - list.getPaddingBottom());
     canvas.drawRect(left, renderedSelectionY, left + width,
       renderedSelectionY + radius * 2f, selectionPaint);
     canvas.restoreToCount(save);
