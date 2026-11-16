@@ -540,12 +540,16 @@ public final class ForumUnreadCounter {
   public static final int MAX_TOPICS = 10000;
   public static final int MAX_INACTIVE_CHATS = 32;
 
-  /** Unknown is an unread dot, not a made-up topic count or a prematurely cleared badge. */
+  /** Use the chat's message count until a complete topic count is available. */
+  @me.vkryl.annotation.MadeByLLM(value = "GPT-6", id = "forum-unread-badge-fallback")
   public static int badgeCount (int unreadTopics, int unreadMessages, boolean markedUnread) {
     if (unreadTopics > 0) {
       return unreadTopics;
     }
-    if (markedUnread || unreadTopics == UNKNOWN && unreadMessages > 0) {
+    if (unreadTopics == UNKNOWN && unreadMessages > 0) {
+      return unreadMessages;
+    }
+    if (markedUnread) {
       return Tdlib.CHAT_MARKED_AS_UNREAD;
     }
     return 0;
