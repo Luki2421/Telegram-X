@@ -17,6 +17,7 @@ package tgx.player
 
 import android.os.SystemClock
 import androidx.media3.common.MimeTypes
+import androidx.media3.decoder.vp9.VpxLibrary
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import tgx.flavor.claimsVideoSize
@@ -153,6 +154,9 @@ class VideoDecoderCache(
     height: Int,
     inHardware: Boolean
   ): Boolean {
+    if (!inHardware && mimeType == MimeTypes.VIDEO_VP9 && VpxLibrary.isAvailable()) {
+      return true
+    }
     return decodersOf(mimeType).orEmpty().any {
       (it.hardwareAccelerated || !inHardware) && claimsSize(it, width, height)
     }
