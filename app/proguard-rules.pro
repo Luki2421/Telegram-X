@@ -24,9 +24,17 @@
 # Keep native bridge
 -keep class org.thunderdog.challegram.N { *; }
 -keep class org.thunderdog.challegram.N$* { *; }
-# Keep TdApi.java
--keep class org.drinkless.tdlib.TdApi { *; }
--keep class org.drinkless.tdlib.TdApi$* { *; }
+# TDLib JNI looks up every API class and field, allocates objects without calling
+# constructors, and dispatches through getConstructor(). Keep that native ABI.
+-keep class org.drinkless.tdlib.TdApi {
+  private static final java.lang.String GIT_COMMIT_HASH;
+}
+-keep class org.drinkless.tdlib.TdApi$* {
+  <fields>;
+  public <init>();
+  public int getConstructor();
+  native <methods>;
+}
 # Keep
 -keepclassmembers class org.drinkless.tdlib.Client$LogMessageHandler {
     *;
@@ -36,9 +44,19 @@
 # Keep log
 -keep class org.thunderdog.challegram.Log
 -keepclassmembers class org.thunderdog.challegram.Log { *; }
-# Keep all related to VoIP
--keep class org.thunderdog.challegram.voip.**
--keepclassmembers class org.thunderdog.challegram.voip.** { *; }
+# tgvoip.cpp resolves these data classes and their fields by name. Callbacks are
+# annotated with @Keep; native methods are covered by the rule above.
+-keep class org.thunderdog.challegram.voip.CallConfiguration { <fields>; }
+-keep class org.thunderdog.challegram.voip.CallOptions { <fields>; }
+-keep class org.thunderdog.challegram.voip.Socks5Proxy { <fields>; }
+-keep class org.thunderdog.challegram.voip.NetworkStats {
+  <fields>;
+  public <init>(long, long, long, long);
+}
+-keep class org.thunderdog.challegram.voip.TgCallsController
+-keepclassmembers class org.thunderdog.challegram.voip.VoIPInstance {
+  org.thunderdog.challegram.voip.CallConfiguration configuration;
+}
 # Keep sync services
 -keep class org.thunderdog.challegram.sync.**
 
@@ -54,8 +72,11 @@
 
 # == THIRDPARTY ==
 
-# MP4Parser
--keep class * implements com.coremedia.iso.boxes.Box { *; }
+# PropertyBoxParserImpl resolves names from isoparser-default.properties and
+# invokes public constructors. Box methods and fields are reached through Java.
+-keep class * implements com.coremedia.iso.boxes.Box {
+  public <init>(...);
+}
 
 # https://github.com/leolin310148/ShortcutBadger/blob/master/ShortcutBadger/proguard-rules.pro
 -keep class me.leolin.shortcutbadger.impl.** {
