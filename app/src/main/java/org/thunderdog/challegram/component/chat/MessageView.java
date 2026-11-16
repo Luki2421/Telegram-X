@@ -229,9 +229,21 @@ public class MessageView extends SparseDrawableView implements Destroyable, Draw
     flags |= FLAG_USE_COMPLEX_RECEIVER;
   }
 
+  // region @MadeByLLM("gpt-6-astra", id = "scrolling-message-avatars")
+  private void invalidateScrollingAvatar () {
+    if (msg != null && msg.usesScrollingAvatar(this)) {
+      MessagesRecyclerView parent = findParentRecyclerView();
+      if (parent != null) {
+        parent.invalidate();
+      }
+    }
+  }
+  // endregion
+
   @Override
   public void invalidate () {
     super.invalidate();
+    invalidateScrollingAvatar(); // @MadeByLLM("gpt-6-astra")
     if (msg != null && msg.needViewGroup()) {
       msg.invalidateOverlay();
     }
@@ -240,6 +252,7 @@ public class MessageView extends SparseDrawableView implements Destroyable, Draw
   @Override
   public void invalidate (int l, int t, int r, int b) {
     super.invalidate(l, t, r, b);
+    invalidateScrollingAvatar(); // @MadeByLLM("gpt-6-astra")
     if (msg != null && msg.needViewGroup()) {
       msg.invalidateOverlay();
     }

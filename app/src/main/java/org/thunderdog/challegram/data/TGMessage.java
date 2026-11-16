@@ -2108,7 +2108,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
     // Header
     if ((flags & FLAG_HEADER_ENABLED) != 0) {
       // Avatar
-      if (needAvatar()) {
+      if (needAvatar() && !usesScrollingAvatar(view)) {
         float cx = avatarReceiver.centerX();
         float cy = avatarReceiver.centerY();
         if (useFullWidth()) {
@@ -2946,7 +2946,8 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
     if (replyData != null && replyData.isInside(x, y, useBubbles() && !useBubble())) {
       return CLICK_TYPE_REPLY;
     }
-    if (hasHeader() && needAvatar() && view.getAvatarReceiver().isInsideReceiver(x, y)) {
+    if (hasHeader() && needAvatar() && !usesScrollingAvatar(view) &&
+      view.getAvatarReceiver().isInsideReceiver(x, y)) {
       return CLICK_TYPE_AVATAR;
     }
     return CLICK_TYPE_NONE;
@@ -4246,6 +4247,45 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
   }
 
   // Image receivers
+
+  // region @MadeByLLM("gpt-6-astra", id = "scrolling-message-avatars")
+  public final boolean usesScrollingAvatar (MessageView view) {
+    return useBubbles() && needAvatar() && !headerDisabled() && !isSponsoredMessage() &&
+      view.findParentRecyclerView() != null;
+  }
+
+  public final boolean endsMessageGroup () {
+    return isBottomMessage();
+  }
+
+  public final float getAvatarTranslation () {
+    return translation + getSelectableContentOffset(manager.getSelectableFactor()) *
+      (Lang.rtl() ? -1 : 1);
+  }
+
+  public final void drawScrollingAvatar (
+    MessageView view,
+    Canvas canvas,
+    float top
+  ) {
+    AvatarReceiver receiver = view.getAvatarReceiver();
+    int size = xBubbleAvatarRadius * 2;
+    int left = Lang.rtl() ? view.getMeasuredWidth() - xBubbleAvatarLeft - size : xBubbleAvatarLeft;
+    receiver.setBounds(left, Math.round(top), left + size, Math.round(top) + size);
+    if (receiver.needPlaceholder()) {
+      receiver.drawPlaceholder(canvas);
+    }
+    receiver.draw(canvas);
+  }
+
+  public final int getAvatarSize () {
+    return xBubbleAvatarRadius * 2;
+  }
+
+  public final boolean openScrollingAvatar (MessageView view) {
+    return onAvatarClick(view);
+  }
+  // endregion
 
   public final void layoutAvatar (MessageView view, AvatarReceiver receiver) {
     int left, top, size;

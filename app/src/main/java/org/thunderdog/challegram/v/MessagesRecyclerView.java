@@ -27,6 +27,8 @@ import androidx.recyclerview.widget.RecyclerView;
 import org.thunderdog.challegram.component.attach.CustomItemAnimator;
 import org.thunderdog.challegram.component.chat.CustomTouchHelper;
 import org.thunderdog.challegram.component.chat.MessagesAdapter;
+import org.thunderdog.challegram.component.chat.MessageView;
+import org.thunderdog.challegram.component.chat.MessagesHolder;
 import org.thunderdog.challegram.component.chat.MessagesManager;
 import org.thunderdog.challegram.component.chat.MessagesTouchHelperCallback;
 import org.thunderdog.challegram.config.Config;
@@ -44,6 +46,111 @@ import me.vkryl.core.MathUtils;
 
 public class MessagesRecyclerView extends RecyclerView implements FactorAnimator.Target {
   public static final long ITEM_ANIMATOR_DURATION = Config.DEBUG_REACTIONS_ANIMATIONS ? 1400l : 140L;
+
+  // region @MadeByLLM("gpt-6-astra", id = "scrolling-message-avatars")
+  private MessageView avatarTouchView;
+  private TGMessage avatarTouchMessage;
+  private float avatarTouchX, avatarTouchY;
+
+  private MessageView scrollingAvatars (Canvas canvas, float touchX, float touchY) {
+    if (manager == null || !(getAdapter() instanceof MessagesAdapter) ||
+      getLayoutManager() == null) {
+      return null;
+    }
+    MessagesAdapter adapter = (MessagesAdapter) getAdapter();
+    float viewportBottom = getHeight() - getPaddingBottom();
+    // The resting margin must not clip an avatar pushed down by the start of its group.
+    float pinnedAvatarBottom = viewportBottom - Screen.dp(8f);
+    float viewportTop = Math.max(getPaddingTop(), getTopOffset());
+    for (int i = 0; i < getChildCount(); i++) {
+      View child = getChildAt(i);
+      MessageView view = MessagesHolder.findMessageView(child);
+      int position = getChildAdapterPosition(child);
+      if (view == null || position == NO_POSITION || child.getY() >= viewportBottom ||
+        child.getY() + child.getHeight() <= viewportTop) {
+        continue;
+      }
+      TGMessage message = view.getMessage();
+      if (message == null || child.getAlpha() == 0f || !message.usesScrollingAvatar(view)) {
+        continue;
+      }
+      View newer = getLayoutManager().findViewByPosition(position - 1);
+      if (!message.endsMessageGroup() && newer != null && newer.getY() < viewportBottom) {
+        continue;
+      }
+      float groupTop = child.getY() + message.getHeaderPadding();
+      TGMessage oldest = message;
+      for (int olderPosition = position + 1; !oldest.hasHeader(); olderPosition++) {
+        View older = getLayoutManager().findViewByPosition(olderPosition);
+        TGMessage olderMessage = adapter.getMessage(olderPosition);
+        if (older == null || olderMessage == null) {
+          groupTop = viewportTop - message.getAvatarSize();
+          break;
+        }
+        groupTop = older.getY() + olderMessage.getHeaderPadding();
+        oldest = olderMessage;
+      }
+      // Intermediate rows hand off the avatar at a fixed viewport position. Their
+      // content padding must not move it up and down as each row crosses the edge.
+      float bottom = message.endsMessageGroup() ?
+        Math.min(pinnedAvatarBottom, child.getY() + message.getBottomContentEdge()) :
+        pinnedAvatarBottom;
+      float top = Math.max(groupTop, bottom - message.getAvatarSize());
+      float originX = child.getX() + message.getAvatarTranslation();
+      float originY = child.getY();
+      if (canvas != null) {
+        int save = canvas.save();
+        canvas.clipRect(0, viewportTop, getWidth(), viewportBottom);
+        canvas.translate(originX, originY);
+        float alpha = view.getAvatarReceiver().getAlpha();
+        view.getAvatarReceiver().setAlpha(alpha * child.getAlpha());
+        message.drawScrollingAvatar(view, canvas, top - originY);
+        view.getAvatarReceiver().setAlpha(alpha);
+        canvas.restoreToCount(save);
+      } else if (touchY >= viewportTop && touchY < viewportBottom &&
+        view.getAvatarReceiver().isInsideReceiver(touchX - originX, touchY - originY)) {
+        return view;
+      }
+    }
+    return null;
+  }
+
+  @Override
+  public boolean dispatchTouchEvent (MotionEvent event) {
+    if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+      avatarTouchView = scrollingAvatars(null, event.getX(), event.getY());
+      avatarTouchMessage = avatarTouchView != null ? avatarTouchView.getMessage() : null;
+      avatarTouchX = event.getX();
+      avatarTouchY = event.getY();
+    } else if (event.getActionMasked() == MotionEvent.ACTION_MOVE &&
+      (Math.abs(event.getX() - avatarTouchX) > Screen.getTouchSlop() ||
+        Math.abs(event.getY() - avatarTouchY) > Screen.getTouchSlop())) {
+      avatarTouchView = null;
+      avatarTouchMessage = null;
+    } else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+      avatarTouchView = null;
+      avatarTouchMessage = null;
+    }
+    if (event.getActionMasked() == MotionEvent.ACTION_UP && avatarTouchView != null) {
+      MessageView view = avatarTouchView;
+      TGMessage message = avatarTouchMessage;
+      avatarTouchView = null;
+      avatarTouchMessage = null;
+      if (view.getMessage() == message && !manager.controller().inSelectMode() &&
+        !manager.controller().inPreviewMode() &&
+        scrollingAvatars(null, event.getX(), event.getY()) == view) {
+        event.setAction(MotionEvent.ACTION_CANCEL);
+        super.dispatchTouchEvent(event);
+        event.setAction(MotionEvent.ACTION_UP);
+        if (message.openScrollingAvatar(view)) {
+          ViewUtils.onClick(this);
+        }
+        return true;
+      }
+    }
+    return super.dispatchTouchEvent(event);
+  }
+  // endregion
 
   private MessagesManager manager;
   private CustomTouchHelper touchHelper;
@@ -267,6 +374,12 @@ public class MessagesRecyclerView extends RecyclerView implements FactorAnimator
   @Override
   public boolean onInterceptTouchEvent (MotionEvent e) {
     boolean res = super.onInterceptTouchEvent(e);
+    // region @MadeByLLM("gpt-6-astra", id = "scrolling-message-avatars")
+    if (e.getActionMasked() == MotionEvent.ACTION_DOWN && avatarTouchView != null &&
+      !manager.controller().inSelectMode() && !manager.controller().inPreviewMode()) {
+      return true;
+    }
+    // endregion
     if (scrollFactor > 0f && e.getAction() == MotionEvent.ACTION_DOWN && isInsideDate(e.getX(), e.getY())) {
       return true;
     }
@@ -353,6 +466,7 @@ public class MessagesRecyclerView extends RecyclerView implements FactorAnimator
 
     @Override
     public void onDrawOver (Canvas c, RecyclerView parent, State state) {
+      scrollingAvatars(c, 0, 0); // @MadeByLLM("gpt-6-astra")
       this.lastMessage = null;
       this.lastTop = 0;
       this.lastAlpha = 0f;
