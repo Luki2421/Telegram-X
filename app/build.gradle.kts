@@ -383,6 +383,14 @@ val buildNativeTasks = mutableMapOf<String, TaskProvider<*>>()
 android {
   namespace = "org.thunderdog.challegram"
 
+  // @MadeByLLM("GPT-6", id = "forum-localization")
+  // Local fallbacks must be available when the app language differs from the device language.
+  bundle {
+    language {
+      enableSplit = false
+    }
+  }
+
   lint {
     disable += arrayOf(
       "MissingTranslation",

@@ -127,12 +127,6 @@
   <string name="ForumNoUnreadPollVotes">No unread poll votes in this topic.</string>
   <string name="ForumGroupProfile">Group profile</string>
   <string name="ForumEditTopic">Edit topic</string>
-  <string name="ForumColorBlue">Blue</string>
-  <string name="ForumColorYellow">Yellow</string>
-  <string name="ForumColorPurple">Purple</string>
-  <string name="ForumColorGreen">Green</string>
-  <string name="ForumColorPink">Pink</string>
-  <string name="ForumColorRed">Red</string>
   <string name="ForumSaving">Saving…</string>
   <string name="ForumActionUnavailable">This action is no longer available. Your permissions or the topic may have changed. Refresh and try again.</string>
   <string name="ForumCloseTopic">Close topic</string>

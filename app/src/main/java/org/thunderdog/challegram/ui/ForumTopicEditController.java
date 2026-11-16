@@ -393,12 +393,12 @@ public final class ForumTopicEditController
     colors = new LinearLayout(context());
     int[] colorLabels =
       {
-        R.string.ForumColorBlue,
-        R.string.ForumColorYellow,
-        R.string.ForumColorPurple,
-        R.string.ForumColorGreen,
-        R.string.ForumColorPink,
-        R.string.ForumColorRed
+        R.string.LedBlue,
+        R.string.LedYellow,
+        R.string.LedPurple,
+        R.string.LedGreen,
+        R.string.LedPink,
+        R.string.LedRed
       };
     for (int i = 0; i < ForumTopicPolicy.ICON_COLORS.length; i++) {
       final int color = ForumTopicPolicy.ICON_COLORS[i];

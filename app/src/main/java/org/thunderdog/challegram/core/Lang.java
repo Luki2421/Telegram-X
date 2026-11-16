@@ -328,22 +328,56 @@ public class Lang {
         return string.value;
     }
     try {
-      return getAndroidString(resId);
+      return getAndroidString(languagePackInfo, resId);
     } catch (Resources.NotFoundException e) {
       Log.e("Resource not found (shitty modified lang pack?): %d %s", resId, getResourceEntryName(resId));
       return "";
     }
   }
 
-  private static String getAndroidString (@StringRes int resId) throws Resources.NotFoundException {
-    // TODO non-current languagePackInfo
-    return UI.getResources().getString(resId);
+  // region @MadeByLLM("GPT-6", id = "forum-localization")
+  private static Resources fallbackResources;
+  private static Configuration fallbackConfiguration;
+  private static String fallbackLanguage;
+
+  private static synchronized Resources getAndroidResources (
+    @Nullable TdApi.LanguagePackInfo languagePackInfo
+  ) {
+    Resources resources = UI.getResources();
+    if (languagePackInfo == null) {
+      return resources;
+    }
+    String language = languagePackInfo.pluralCode;
+    if (StringUtils.isEmpty(language)) {
+      return resources;
+    }
+    Configuration configuration = resources.getConfiguration();
+    if (fallbackResources == null || !language.equals(fallbackLanguage) ||
+        !configuration.equals(fallbackConfiguration)) {
+      fallbackConfiguration = new Configuration(configuration);
+      Configuration localized = new Configuration(configuration);
+      localized.setLocale(obtainLocale(language));
+      fallbackResources = AppContext.get().createConfigurationContext(localized).getResources();
+      fallbackLanguage = language;
+    }
+    return fallbackResources;
   }
 
-  private static String getAndroidString (@StringRes int resId, Object... formatArgs) {
-    // TODO non-current languagePackInfo
-    return UI.getResources().getString(resId, formatArgs);
+  private static String getAndroidString (
+    @Nullable TdApi.LanguagePackInfo languagePackInfo,
+    @StringRes int resId
+  ) throws Resources.NotFoundException {
+    return getAndroidResources(languagePackInfo).getString(resId);
   }
+
+  private static String getAndroidString (
+    @Nullable TdApi.LanguagePackInfo languagePackInfo,
+    @StringRes int resId,
+    Object... formatArgs
+  ) {
+    return getAndroidResources(languagePackInfo).getString(resId, formatArgs);
+  }
+  // endregion
 
   private static final int FLAG_LOWERCASE = 1;
 
@@ -430,7 +464,7 @@ public class Lang {
     if (resId == 0)
       throw new Resources.NotFoundException("resId == 0");
     if (formatArgs == null || formatArgs.length == 0)
-      return getStringImpl(null, resId, allowCloud);
+      return getStringImpl(languagePackInfo, resId, allowCloud);
     final boolean hasSpanned = hasSpanned(formatArgs);
     if (allowCloud) {
       if (languagePackInfo == null)
@@ -447,16 +481,16 @@ public class Lang {
     }
     try {
       if (creator != null || flags != 0 || hasSpanned) {
-        String format = applyFlags(getAndroidString(resId), flags);
+        String format = applyFlags(getAndroidString(languagePackInfo, resId), flags);
         return formatString(format, hasSpanned, creator, formatArgs);
       } else {
-        return getAndroidString(resId, formatArgs);
+        return getAndroidString(languagePackInfo, resId, formatArgs);
       }
     } catch (Resources.NotFoundException e) {
       Log.e("Resource not found (shitty modified lang pack?): %d %s", resId, getResourceEntryName(resId));
       return "";
     } catch (Throwable t) {
-      String str = getAndroidString(resId);
+      String str = getAndroidString(languagePackInfo, resId);
       Log.e("Resource format is broken (shitty modified lang pack?): %s, format: %s", t, getResourceEntryName(resId), str);
       return str;
     }
@@ -1851,7 +1885,8 @@ public class Lang {
       throw new Resources.NotFoundException("resId == 0");
 
     String key = getResourceEntryName(resId);
-    TdApi.LanguagePackStringValuePluralized string = getStringPluralized(key, Settings.instance().getLanguagePackInfo());
+    TdApi.LanguagePackInfo languagePackInfo = Settings.instance().getLanguagePackInfo();
+    TdApi.LanguagePackStringValuePluralized string = getStringPluralized(key, languagePackInfo);
     if (string != null) {
       int languageCode = pluralCode();
       int pluralForm = numberPluralizationForm(languageCode, num);
@@ -1870,13 +1905,13 @@ public class Lang {
     final int languageCode = fallbackLanguageCode();
     final int pluralRes = pluralRes(languageCode, resId, num);
     try {
-      return getStringImpl(null, pluralRes, false, flags, creator, formatArgs);
+      return getStringImpl(languagePackInfo, pluralRes, false, flags, creator, formatArgs);
     } catch (Throwable t) {
       if (languageCode == LANGUAGE_CODE_DEFAULT)
         throw new IllegalStateException("Broken plural: " + getResourceEntryName(resId), t);
       warnResource(false, languageCode, pluralRes);
       int newRes = pluralRes(LANGUAGE_CODE_DEFAULT, resId, num);
-      return getStringImpl(null, newRes, false, flags, creator, formatArgs);
+      return getStringImpl(languagePackInfo, newRes, false, flags, creator, formatArgs);
     }
   }
 
