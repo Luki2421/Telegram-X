@@ -8022,10 +8022,6 @@ public class TdlibUi extends Handler {
     });
   }
 
-  public void subscribeToBeta (TdlibDelegate context) {
-    openUrl(context, Lang.getStringSecure(R.string.url_betaSubscription), null);
-  }
-
   public static CharSequence getTdlibVersionSignature () {
     return Lang.getStringSecure(R.string.format_commit, Lang.codeCreator(), Td.tdlibVersion(), Td.tdlibCommitHash());
   }

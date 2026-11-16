@@ -91,7 +91,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import me.vkryl.android.AppInstallationUtil;
 import me.vkryl.android.widget.FrameLayoutFix;
 import me.vkryl.core.ArrayUtils;
 import me.vkryl.core.ColorUtils;
@@ -663,10 +662,6 @@ public class SettingsController extends ViewController<Void> implements
       R.drawable.baseline_update_24,
       R.string.CheckForUpdates
     ));
-    if (AppInstallationUtil.getInstallerId(context) == AppInstallationUtil.InstallerId.GOOGLE_PLAY) {
-      items.add(new ListItem(ListItem.TYPE_SEPARATOR));
-      items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_subscribeToBeta, R.drawable.templarian_baseline_flask_24, R.string.SubscribeToBeta));
-    }
     items.add(new ListItem(ListItem.TYPE_SEPARATOR));
     items.add(new ListItem(ListItem.TYPE_VALUED_SETTING_COMPACT, R.id.btn_sourceCode, R.drawable.baseline_github_24, R.string.ViewSourceCode));
     this.previousBuildInfo = Settings.instance().getPreviousBuildInformation();
@@ -1193,8 +1188,6 @@ public class SettingsController extends ViewController<Void> implements
       navigateTo(new SettingsSessionsController(context, tdlib));
     } else if (viewId == R.id.btn_checkUpdates) {
       checkForUpdates();
-    } else if (viewId == R.id.btn_subscribeToBeta) {
-      tdlib.ui().subscribeToBeta(this);
     } else if (viewId == R.id.btn_sourceCodeChanges) {// TODO provide an ability to view changes in PRs if they are present in both builds
       AppBuildInfo appBuildInfo = Settings.instance().getCurrentBuildInformation();
       tdlib.ui().openUrl(this, appBuildInfo.changesUrlFrom(previousBuildInfo), new TdlibUi.UrlOpenParameters().disableInstantView());

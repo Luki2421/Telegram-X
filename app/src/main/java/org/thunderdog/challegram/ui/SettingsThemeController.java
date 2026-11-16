@@ -495,17 +495,8 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
           new ListItem(ListItem.TYPE_SHADOW_TOP),
           new ListItem(ListItem.TYPE_VALUED_SETTING_COMPACT_WITH_TOGGLER, R.id.btn_updateAutomatically, 0, R.string.AutoUpdate)
         ));
-        if (Settings.instance().getAutoUpdateMode() != Settings.AUTO_UPDATE_MODE_NEVER) {
-          items.addAll(newAutoUpdateConfigurationItems());
-        }
-      } else {
-        items.addAll(Arrays.asList(
-          new ListItem(ListItem.TYPE_HEADER, 0, 0, R.string.AppUpdates),
-          new ListItem(ListItem.TYPE_SHADOW_TOP),
-          new ListItem(ListItem.TYPE_SETTING, R.id.btn_subscribeToBeta, 0, R.string.SubscribeToBeta)
-        ));
+        items.add(new ListItem(ListItem.TYPE_SHADOW_BOTTOM));
       }
-      items.add(new ListItem(ListItem.TYPE_SHADOW_BOTTOM));
 
       items.add(new ListItem(ListItem.TYPE_HEADER, 0, 0, R.string.Chats));
       items.add(new ListItem(ListItem.TYPE_SHADOW_TOP));
@@ -735,19 +726,6 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
 
   private static ListItem newScheduleLocationItem () {
     return new ListItem(ListItem.TYPE_SETTING, R.id.btn_autoNightModeScheduled_location);
-  }
-
-  // @MadeByLLM("gpt-6")
-  private static List<ListItem> newAutoUpdateConfigurationItems () {
-    return Arrays.asList(
-      new ListItem(ListItem.TYPE_SEPARATOR_FULL),
-      new ListItem(
-        ListItem.TYPE_RADIO_SETTING,
-        R.id.btn_toggleNewSetting,
-        0,
-        R.string.InstallBetas
-      ).setLongId(Settings.SETTING_FLAG_DOWNLOAD_BETAS)
-    );
   }
 
   @Override
@@ -1156,8 +1134,6 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
       Settings.instance().setNeedSendByEnter(adapter.toggleView(v));
     } else if (viewId == R.id.btn_toggleNewSetting) {
       handleSettingClick(v, adapter);
-    } else if (viewId == R.id.btn_subscribeToBeta) {
-      tdlib.ui().subscribeToBeta(this);
     } else if (viewId == R.id.btn_updateAutomatically) {
       showUpdateOptions();
     } else if (viewId == R.id.btn_saveToGallery) {
@@ -1271,7 +1247,6 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
     }).setAllowResize(false).setIntDelegate((id, result) -> {
       int newAutoUpdateMode = Settings.instance().getAutoUpdateMode();
       int autoUpdateResultId = result.get(R.id.btn_updateAutomatically);
-      boolean shouldChangeUi = (newAutoUpdateMode == Settings.AUTO_UPDATE_MODE_NEVER && autoUpdateResultId != R.id.btn_updateAutomaticallyNever) || (newAutoUpdateMode != Settings.AUTO_UPDATE_MODE_NEVER && autoUpdateResultId == R.id.btn_updateAutomaticallyNever);
       if (autoUpdateResultId == R.id.btn_updateAutomaticallyAlways) {
         newAutoUpdateMode = Settings.AUTO_UPDATE_MODE_ALWAYS;
       } else if (autoUpdateResultId == R.id.btn_updateAutomaticallyWiFi) {
@@ -1283,15 +1258,6 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
       }
       Settings.instance().setAutoUpdateMode(newAutoUpdateMode);
       adapter.updateValuedSettingById(R.id.btn_updateAutomatically);
-
-      int index = adapter.indexOfViewById(R.id.btn_updateAutomatically);
-      if (shouldChangeUi && index != -1) {
-        if (newAutoUpdateMode == Settings.AUTO_UPDATE_MODE_NEVER) {
-          adapter.removeRange(index + 1, newAutoUpdateConfigurationItems().size());
-        } else {
-          adapter.addItems(index + 1, newAutoUpdateConfigurationItems().toArray(new ListItem[0]));
-        }
-      }
     }));
   }
 

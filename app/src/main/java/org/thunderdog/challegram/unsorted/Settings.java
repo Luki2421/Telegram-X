@@ -417,7 +417,7 @@ public class Settings {
   public static final long SETTING_FLAG_USE_METRIC_FILE_SIZE_UNITS = 1 << 6;
   public static final long SETTING_FLAG_FORCE_EXO_PLAYER_EXTENSIONS = 1 << 7;
   public static final long SETTING_FLAG_NO_AUDIO_COMPRESSION = 1 << 8;
-  public static final long SETTING_FLAG_DOWNLOAD_BETAS = 1 << 9;
+  // Bit 9 is reserved for the removed beta update preference.
   public static final long SETTING_FLAG_NO_ANIMATED_EMOJI_LOOP = 1 << 10;
 
   public static final long SETTING_FLAG_CAMERA_NO_FLIP = 1 << 10;

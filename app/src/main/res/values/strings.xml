@@ -5046,7 +5046,6 @@
   <string name="AutoUpdateAlways">Always</string>
   <string name="AutoUpdateWiFi">On Wi-Fi</string>
   <string name="AutoUpdatePrompt">Prompt when available</string>
-  <string name="InstallBetas">Install beta versions</string>
   <string name="CheckForUpdates">Check for updates</string>
   <string name="InstallUpdate">Install an update</string>
   <string name="AppUpdateNotFound">No compatible update was found in the updates channel.</string>
@@ -5254,8 +5253,6 @@
   <string name="OpenPreviewInSecretChatActionOpen">Open as preview</string>
   <string name="OpenPreviewInSecretChatActionBrowser">Open in browser</string>
 
-  <string name="SubscribeToBeta">Subscribe to beta updates</string>
-  <string name="url_betaSubscription">https://play.google.com/apps/testing/org.thunderdog.challegram</string>
 
   <string name="NotificationsMode">Show notifications from</string>
   <string name="NotificationsModeAll">All accounts</string>

@@ -11037,11 +11037,9 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
     @NonNull RunnableData<UpdateFileInfo> onDone,
     @NonNull Runnable onError
   ) {
-    final String query = Settings.instance().getNewSetting(Settings.SETTING_FLAG_DOWNLOAD_BETAS) ?
-      "#apk" : "#apk #stable";
     clientHolder().updates.findResource(
       message -> onDone.runWithData(parseUpdateFile(message)),
-      query,
+      "#apk",
       BuildConfig.COMMIT_DATE,
       onError
     );

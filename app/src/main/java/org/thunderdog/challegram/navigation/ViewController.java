@@ -3423,9 +3423,6 @@ public abstract class ViewController<T> implements Future<View>, ThemeChangeList
     if (item.getBoolValue())
       value = !value;
     Settings.instance().setNewSetting(item.getLongId(), value);
-    if (value && item.getLongId() == Settings.SETTING_FLAG_DOWNLOAD_BETAS) {
-      context().appUpdater().checkForUpdates();
-    }
   }
 
   protected void onFocusStateChanged () { }
