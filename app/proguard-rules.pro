@@ -12,7 +12,6 @@
   public <init>(android.content.Context, android.util.AttributeSet, int);
 }
 # Keep items annotated with @Keep
--keep @androidx.annotation.Keep public class *
 -keepclassmembers class * {
     @androidx.annotation.Keep *;
 }
@@ -25,11 +24,9 @@
 # Keep native bridge
 -keep class org.thunderdog.challegram.N { *; }
 -keep class org.thunderdog.challegram.N$* { *; }
--keepclassmembers class org.thunderdog.challegram.N { *; }
 # Keep TdApi.java
 -keep class org.drinkless.tdlib.TdApi { *; }
 -keep class org.drinkless.tdlib.TdApi$* { *; }
--keepclassmembers class org.drinkless.tdlib.TdApi { *; }
 # Keep
 -keepclassmembers class org.drinkless.tdlib.Client$LogMessageHandler {
     *;
