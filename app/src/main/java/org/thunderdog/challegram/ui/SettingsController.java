@@ -1063,18 +1063,17 @@ public class SettingsController extends ViewController<Void> implements
     }
   }
 
-  // @MadeByLLM("gpt-6")
+  // @MadeByLLM("gpt-6", id = "01a1e6cc-daa9-78a0-bc17-1436d4d17f05")
   @Override
   public void onAppUpdateStateChanged (int state, int oldState) {
     adapter.updateValuedSettingById(R.id.btn_checkUpdates);
     if (oldState == AppUpdater.State.CHECKING && checkingForUpdates) {
       checkingForUpdates = false;
       if (state == AppUpdater.State.NONE && isFocused()) {
-        UI.showToast(
-          context().appUpdater().updateCheckError() != 0 ?
-            context().appUpdater().updateCheckError() : R.string.AppUpdateNotFound,
-          Toast.LENGTH_LONG
-        );
+        int error = context().appUpdater().updateCheckError();
+        if (error != 0) {
+          UI.showToast(error, Toast.LENGTH_LONG);
+        }
       }
     }
   }
