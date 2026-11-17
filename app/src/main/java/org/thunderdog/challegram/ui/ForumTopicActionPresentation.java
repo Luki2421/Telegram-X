@@ -15,6 +15,9 @@ package org.thunderdog.challegram.ui;
 import androidx.annotation.Nullable;
 
 import org.drinkless.tdlib.TdApi;
+import org.thunderdog.challegram.R;
+import org.thunderdog.challegram.core.Lang;
+import org.thunderdog.challegram.data.TD;
 import org.thunderdog.challegram.data.ForumTopicSelection.Action;
 import org.thunderdog.challegram.telegram.ForumTopicActions;
 
@@ -78,7 +81,13 @@ final class ForumTopicActionPresentation {
       new BatchFailure(differentErrors ? null : cause, uncertain, result.failedTargets()) : null;
   }
 
-  /** TD's raw fallback is diagnostic text, not a suitable user-facing batch error. */
+  @me.vkryl.annotation.MadeByLLM(value = "GPT-6", id = "forum-polish-audit")
+  static String readableError (TdApi.Error error) {
+    return readableError(error, TD.translateError(error.code, error.message),
+      Lang.getString(R.string.LaunchSubtitleFatalError));
+  }
+
+  /** TD's raw fallback is diagnostic text, not a suitable user-facing error. */
   static String readableError (TdApi.Error error, @Nullable String translated, String fallback) {
     return translated == null ||
       translated.trim().isEmpty() ||

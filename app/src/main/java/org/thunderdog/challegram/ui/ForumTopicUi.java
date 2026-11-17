@@ -161,7 +161,7 @@ public final class ForumTopicUi implements ChatListener {
       (ok, failure) -> {
         busy = false;
         if (failure != null) {
-          error(failure.message);
+          error(ForumTopicActionPresentation.readableError(failure));
         }
         // Ok only means accepted: the store refreshes full topics and lists.
       }
@@ -408,7 +408,7 @@ public final class ForumTopicUi implements ChatListener {
           return;
         }
         if (failure != null) {
-          error(failure.message);
+          error(ForumTopicActionPresentation.readableError(failure));
         } else {
           UI.copyText(link.link, R.string.CopiedLink);
         }
@@ -432,7 +432,7 @@ public final class ForumTopicUi implements ChatListener {
             return;
           }
           if (failure != null) {
-            error(failure.message);
+            error(ForumTopicActionPresentation.readableError(failure));
           } else if (found.messages.length > 0 &&
             ForumNavigation.forumTopic(
               chatId,
@@ -482,7 +482,7 @@ public final class ForumTopicUi implements ChatListener {
           pinsSession.close();
           pinsSession = null;
           busy = false;
-          error(value.error.message);
+          error(ForumTopicActionPresentation.readableError(value.error));
         } else if (value.initialized && !value.refreshing && !value.stale) {
           if (!ForumTopicPolicy.completePinnedPrefix(value.topics, value.endReached)) {
             pinsSession.loadMore();
@@ -576,11 +576,7 @@ public final class ForumTopicUi implements ChatListener {
         return Lang.getString(R.string.ForumSelectionPinsUnavailable);
       case ForumTopicActions.BATCH_PREFLIGHT_ABORTED:
         return Lang.getString(R.string.ForumActionUnavailable);
-      default: return ForumTopicActionPresentation.readableError(
-        error,
-        TD.translateError(error.code, error.message),
-        Lang.getString(R.string.LaunchSubtitleFatalError)
-      );
+      default: return ForumTopicActionPresentation.readableError(error);
     }
   }
 

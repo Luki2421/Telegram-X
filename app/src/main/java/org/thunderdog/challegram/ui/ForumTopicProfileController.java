@@ -721,7 +721,7 @@ public final class ForumTopicProfileController
         busy = false;
         render();
         if (error != null) {
-          error(error.message);
+          error(ForumTopicActionPresentation.readableError(error));
         }
       }
     );
