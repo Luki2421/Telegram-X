@@ -6700,10 +6700,8 @@ public class MessagesController extends ViewController<MessagesController.Argume
     if (forumTopicContext != null) {
       // Closing a topic restricts sending, not an administrator's independent pin-message right.
       return chat != null && !areScheduled && !isEventLog() && (!checkUi || !inPreviewMode) &&
-        org.thunderdog.challegram.data.ForumTopicPolicy.canPinMessages(
-          tdlib.chatStatus(chat.id),
-          chat.permissions
-        );
+        org.thunderdog.challegram.data.ForumTopicPolicy.isMember(tdlib.chatStatus(chat.id)) &&
+        tdlib.canPinMessages(chat);
     }
     // endregion
     return (checkUi ? canWriteMessages() : hasWritePermission()) && chat != null && tdlib.canPinMessages(chat) && !areScheduled;
@@ -9545,10 +9543,9 @@ public class MessagesController extends ViewController<MessagesController.Argume
           // region @MadeByLLM("gpt-6-astra", id = "forum-topics", ref = "PR #1095")
           if (ForumHistory.isForum(targetTopic)) {
             TdApi.Chat target = tdlib.chat(targetChatId);
-            if (target != null && org.thunderdog.challegram.data.ForumTopicPolicy.canPinMessages(
-              tdlib.chatStatus(targetChatId),
-              target.permissions
-            )) {
+            if (target != null &&
+              org.thunderdog.challegram.data.ForumTopicPolicy.isMember(
+                tdlib.chatStatus(targetChatId)) && tdlib.canPinMessages(target)) {
               tdlib.topics().actions.unpinAllMessages(
                 new TdlibForumTopicManager.Key(
                   targetChatId,

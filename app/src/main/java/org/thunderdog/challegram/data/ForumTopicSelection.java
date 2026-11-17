@@ -131,10 +131,9 @@ public final class ForumTopicSelection {
     }
   }
 
+  @me.vkryl.annotation.MadeByLLM(value = "GPT-6", id = "forum-polish-audit")
   public static boolean effectiveMute (TdApi.ForumTopic topic, boolean groupMuted) {
-    return topic.notificationSettings == null ||
-      topic.notificationSettings.useDefaultMuteFor ? groupMuted :
-        topic.notificationSettings.muteFor > 0;
+    return ForumPresentation.isMuted(topic.notificationSettings, groupMuted);
   }
 
   /**

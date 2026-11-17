@@ -73,25 +73,6 @@ public final class ForumTopicPolicy {
       (canDeleteAny(status) || !info.isGeneral && isMember(status) && info.isOutgoing);
   }
 
-  public static boolean canPinMessages (
-    TdApi.ChatMemberStatus status,
-    TdApi.ChatPermissions permissions
-  ) {
-    if (!isMember(status)) {
-      return false;
-    }
-    if (status instanceof TdApi.ChatMemberStatusCreator) {
-      return true;
-    }
-    if (status instanceof TdApi.ChatMemberStatusAdministrator) {
-      return ((TdApi.ChatMemberStatusAdministrator) status).rights.canPinMessages;
-    }
-    return permissions != null &&
-      permissions.canPinMessages &&
-      (!(status instanceof TdApi.ChatMemberStatusRestricted) ||
-        ((TdApi.ChatMemberStatusRestricted) status).permissions.canPinMessages);
-  }
-
   public static boolean validName (String name) {
     return name != null && !name.trim().isEmpty() && name.codePointCount(0, name.length()) <= 128;
   }
@@ -164,28 +145,15 @@ public final class ForumTopicPolicy {
     return ids;
   }
 
+  @me.vkryl.annotation.MadeByLLM(value = "GPT-6", id = "forum-polish-audit")
   public static TdApi.ChatNotificationSettings notifications (
     TdApi.ChatNotificationSettings s,
     boolean inherit,
     int muteFor
   ) {
-    return new TdApi.ChatNotificationSettings(
-      inherit,
-      inherit ? 0 : muteFor,
-      s.useDefaultSound,
-      s.soundId,
-      s.useDefaultShowPreview,
-      s.showPreview,
-      s.useDefaultMuteStories,
-      s.muteStories,
-      s.useDefaultStorySound,
-      s.storySoundId,
-      s.useDefaultShowStoryPoster,
-      s.showStoryPoster,
-      s.useDefaultDisablePinnedMessageNotifications,
-      s.disablePinnedMessageNotifications,
-      s.useDefaultDisableMentionNotifications,
-      s.disableMentionNotifications
-    );
+    TdApi.ChatNotificationSettings result = ForumTopicNotifications.copy(s);
+    result.useDefaultMuteFor = inherit;
+    result.muteFor = inherit ? 0 : muteFor;
+    return result;
   }
 }
