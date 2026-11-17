@@ -124,6 +124,8 @@ androidx-camera-lifecycle-latest = { module = "androidx.camera:camera-lifecycle"
 
 androidx-camera-view-latest = { module = "androidx.camera:camera-view", version.ref = "androidx-camera-latest" }
 
+androidx-camera-mlkit-vision-latest = { module = "androidx.camera:camera-mlkit-vision", version.ref = "androidx-camera-latest" }
+
 androidx-media-common-latest = { module = "androidx.media3:media3-common", version.ref = "androidx-media-latest" }
 
 androidx-media-exoplayer-latest = { module = "androidx.media3:media3-exoplayer", version.ref = "androidx-media-latest" }

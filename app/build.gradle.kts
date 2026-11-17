@@ -993,6 +993,7 @@ dependencies {
   implementation(libs.androidx.camera.video.latest)
   implementation(libs.androidx.camera.lifecycle.latest)
   implementation(libs.androidx.camera.view.latest)
+  implementation(libs.androidx.camera.mlkit.vision.latest)
   // Google Play Services: https://developers.google.com/android/guides/releases
   implementation(libs.google.play.services.base.latest)
   implementation(libs.google.play.services.basement.latest)

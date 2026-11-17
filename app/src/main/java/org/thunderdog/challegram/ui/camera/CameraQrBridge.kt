@@ -15,11 +15,10 @@ package org.thunderdog.challegram.ui.camera
 
 import android.graphics.ImageFormat
 import android.graphics.RectF
-import android.os.Build
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import androidx.camera.mlkit.vision.MlKitAnalyzer
 import androidx.core.content.ContextCompat
-import com.google.android.gms.tasks.OnFailureListener
-import com.google.android.gms.tasks.OnSuccessListener
 import com.google.mlkit.common.MlKitException
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -35,13 +34,14 @@ import org.thunderdog.challegram.ui.camera.legacy.CameraApiLegacy
 import org.thunderdog.challegram.unsorted.AppContext
 import org.thunderdog.challegram.unsorted.Settings
 import tgx.flavor.Barcode
-import java.nio.ByteBuffer
 import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import kotlin.math.max
 import kotlin.math.min
 
+// @MadeByLLM("gpt-6", id = "camerax-lifecycle-fixes")
 class CameraQrBridge(manager: CameraManager<*>) {
   val backgroundExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
@@ -49,10 +49,17 @@ class CameraQrBridge(manager: CameraManager<*>) {
   private val mainExecutor: Executor = ContextCompat.getMainExecutor(manager.context)
   private val zxingReader = QRCodeReader()
   private var barcodeScanner: BarcodeScanner? = null
-  private var mlkitFailed = false
+  @Volatile private var mlkitFailed = false
+  @Volatile private var destroyed = false
+  private var cameraXAnalyzer: MlKitAnalyzer? = null
+  private var analyzerWidth = 0
+  private var analyzerHeight = 0
+  private var analyzerRotation = -1
+  private var pendingDetections = 0
 
   init {
-    if (U.isGooglePlayServicesAvailable(AppContext.get()) && !Settings.instance().needForceZxingQrProcessing()) {
+    if (U.isGooglePlayServicesAvailable(AppContext.get()) &&
+      !Settings.instance().needForceZxingQrProcessing()) {
       try {
         barcodeScanner = BarcodeScanning.getClient(
           BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE)
@@ -64,39 +71,93 @@ class CameraQrBridge(manager: CameraManager<*>) {
     }
   }
 
+  @Synchronized
   fun destroy() {
-    barcodeScanner?.apply {
-      close()
-    }?.also {
-      barcodeScanner = null
-    }
+    destroyed = true
     backgroundExecutor.shutdown()
-    mlkitFailed = false
+    closeScannerIfIdle()
   }
 
+  @Synchronized
+  private fun beginDetection(): Boolean {
+    if (destroyed) {
+      return false
+    }
+    pendingDetections++
+    return true
+  }
+
+  @Synchronized
+  private fun endDetection() {
+    pendingDetections--
+    closeScannerIfIdle()
+  }
+
+  private fun closeScannerIfIdle() {
+    if (destroyed && pendingDetections == 0) {
+      barcodeScanner?.close()
+      barcodeScanner = null
+    }
+  }
 
   @Suppress("UnsafeOptInUsageError")
   fun processImage(proxy: ImageProxy) {
-    proxy.use {
-      val mediaImage = it.image
-      if (mediaImage != null) {
-        if (this.isGmsImplementationSupported) {
-          gmsImplementation(
-            InputImage.fromMediaImage(
-              mediaImage,
-              proxy.imageInfo.rotationDegrees
-            ),
-            bufferAsBytes(proxy.planes[0].buffer),
-            U.isRotated(proxy.imageInfo.rotationDegrees)) {
-          }
-        } else {
-          zxingImplementation(
-            bufferAsBytes(proxy.planes[0].buffer),
-            proxy.width,
-            proxy.height,
-            proxy.imageInfo.rotationDegrees) {
+    if (destroyed) {
+      proxy.close()
+      return
+    }
+    val scanner = barcodeScanner
+    val width = proxy.width
+    val height = proxy.height
+    val rotation = proxy.imageInfo.rotationDegrees
+    if (scanner != null && !mlkitFailed) {
+      if (proxy.image == null || !beginDetection()) {
+        proxy.close()
+        return
+      }
+      try {
+        if (cameraXAnalyzer == null || analyzerWidth != width || analyzerHeight != height ||
+          analyzerRotation != rotation) {
+          analyzerWidth = width
+          analyzerHeight = height
+          analyzerRotation = rotation
+          cameraXAnalyzer = MlKitAnalyzer(
+            listOf(scanner),
+            ImageAnalysis.COORDINATE_SYSTEM_ORIGINAL,
+            mainExecutor
+          ) { result ->
+            try {
+              if (!destroyed) {
+                val error = result.getThrowable(scanner)
+                if (error != null) {
+                  Log.e(Log.TAG_CAMERA, error)
+                  mlkitFailed = true
+                  delegate.onQrCodeNotFound()
+                } else {
+                  reportBarcodes(result.getValue(scanner), width, height, rotation)
+                }
+              }
+            } finally {
+              endDetection()
+            }
           }
         }
+        // MlKitAnalyzer owns the proxy until all asynchronous detectors have completed.
+        cameraXAnalyzer!!.analyze(proxy)
+      } catch (e: Exception) {
+        proxy.close()
+        endDetection()
+        mlkitFailed = true
+        Log.e(Log.TAG_CAMERA, e)
+      }
+    } else {
+      try {
+        zxingImplementation(copyLuminance(proxy), width, height, rotation) {
+          proxy.close()
+        }
+      } catch (e: Exception) {
+        proxy.close()
+        Log.e(Log.TAG_CAMERA, e)
       }
     }
   }
@@ -117,7 +178,9 @@ class CameraQrBridge(manager: CameraManager<*>) {
           previewHeight,
           rotation,
           ImageFormat.NV21
-        ), data, U.isRotated(rotation)) {
+        ),
+        data
+      ) {
         legacyApi.notifyCanReadNextFrame()
       }
     } else {
@@ -125,66 +188,83 @@ class CameraQrBridge(manager: CameraManager<*>) {
         data,
         previewWidth,
         previewHeight,
-        rotation) {
+        rotation
+      ) {
         legacyApi.notifyCanReadNextFrame()
       }
     }
   }
 
   val isGmsImplementationSupported: Boolean
-    get() = barcodeScanner != null && !mlkitFailed
+    get() = !destroyed && barcodeScanner != null && !mlkitFailed
 
   private fun gmsImplementation(
     image: InputImage,
     safeData: ByteArray,
-    swapSizes: Boolean,
     onCompleteListener: (() -> Unit)?
   ) {
-    barcodeScanner!!.process(image).addOnSuccessListener(
-      mainExecutor,
-      OnSuccessListener { barcodes: MutableList<Barcode?>? ->
-        if (barcodes!!.isEmpty()) {
-          delegate.onQrCodeNotFound()
-        } else {
-          val first: Barcode = barcodes[0]!!
-
-          if (swapSizes) {
-            delegate.onQrCodeFound(
-              first.rawValue,
-              RectF(first.boundingBox),
+    if (!beginDetection()) {
+      onCompleteListener?.invoke()
+      return
+    }
+    try {
+      barcodeScanner!!.process(image).addOnCompleteListener(mainExecutor) { task ->
+        try {
+          if (destroyed) {
+            onCompleteListener?.invoke()
+          } else if (task.isSuccessful) {
+            reportBarcodes(task.result, image.width, image.height, image.rotationDegrees)
+            onCompleteListener?.invoke()
+          } else if (task.exception is MlKitException) {
+            mlkitFailed = true
+            zxingImplementation(
+              safeData,
               image.width,
               image.height,
-              0,
-              false
+              image.rotationDegrees,
+              onCompleteListener
             )
           } else {
-            delegate.onQrCodeFound(
-              first.rawValue,
-              RectF(first.boundingBox),
-              image.height,
-              image.width,
-              0,
-              false
-            )
+            Log.e(Log.TAG_CAMERA, task.exception)
+            onCompleteListener?.invoke()
           }
+        } finally {
+          endDetection()
         }
-      }).addOnFailureListener(OnFailureListener { ex: Exception? ->
-      if (ex is MlKitException) {
-        //Log.w("MlkitException - reverting to ZXing [code: %s, msg: %s]", ((MlKitException) ex).getErrorCode(), ex.getMessage());
-        mlkitFailed = true
-        zxingImplementation(
-          safeData,
-          image.width,
-          image.height,
-          image.rotationDegrees,
-          onCompleteListener
-        )
-      } else {
-        Log.e(Log.TAG_CAMERA, ex)
       }
-    }).addOnCompleteListener { result ->
-      if (onCompleteListener != null) onCompleteListener()
+    } catch (e: Exception) {
+      endDetection()
+      Log.e(Log.TAG_CAMERA, e)
+      mlkitFailed = true
+      zxingImplementation(
+        safeData,
+        image.width,
+        image.height,
+        image.rotationDegrees,
+        onCompleteListener
+      )
     }
+  }
+
+  private fun reportBarcodes(
+    barcodes: List<Barcode>?,
+    width: Int,
+    height: Int,
+    rotation: Int
+  ) {
+    val first = barcodes?.firstOrNull { !it.rawValue.isNullOrEmpty() }
+    if (first == null) {
+      delegate.onQrCodeNotFound()
+      return
+    }
+    delegate.onQrCodeFound(
+      first.rawValue,
+      first.boundingBox?.let { RectF(it) },
+      if (U.isRotated(rotation)) width else height,
+      if (U.isRotated(rotation)) height else width,
+      0,
+      false
+    )
   }
 
   private fun zxingImplementation(
@@ -194,49 +274,74 @@ class CameraQrBridge(manager: CameraManager<*>) {
     rotation: Int,
     onFinish: Runnable?
   ) {
-    backgroundExecutor.submit {
-      try {
-        val sensorRotation = delegate.getCurrentCameraSensorOrientation()
-        val match = zxingImplementationImpl(data, width, height, rotation)
-        if (match != null && !match.text.isNullOrEmpty()) {
-          val zxingBox: RectF?
-          if (sensorRotation != rotation && U.isRotated(sensorRotation)) {
-            zxingBox = zxingBoundingBox(match, rotation, true, width, height)
-            mainExecutor.execute {
-              delegate.onQrCodeFound(
-                match.text,
-                zxingBox,
-                height,
-                width,
-                rotation,
-                true
-              )
+    if (destroyed) {
+      onFinish?.run()
+      return
+    }
+    try {
+      backgroundExecutor.execute analysis@ {
+        try {
+          if (destroyed) {
+            return@analysis
+          }
+          val sensorRotation = delegate.getCurrentCameraSensorOrientation()
+          val match = zxingImplementationImpl(data, width, height, rotation)
+          if (match != null && !match.text.isNullOrEmpty()) {
+            val zxingBox: RectF?
+            if (sensorRotation != rotation && U.isRotated(sensorRotation)) {
+              zxingBox = zxingBoundingBox(match, rotation, true, width, height)
+              mainExecutor.execute report@ {
+                if (destroyed) {
+                  return@report
+                }
+                delegate.onQrCodeFound(
+                  match.text,
+                  zxingBox,
+                  height,
+                  width,
+                  rotation,
+                  true
+                )
+              }
+            } else {
+              zxingBox = zxingBoundingBox(match, rotation, false, width, height)
+              mainExecutor.execute report@ {
+                if (destroyed) {
+                  return@report
+                }
+                delegate.onQrCodeFound(
+                  match.text,
+                  zxingBox,
+                  width,
+                  height,
+                  rotation,
+                  true
+                )
+              }
             }
           } else {
-            zxingBox = zxingBoundingBox(match, rotation, false, width, height)
             mainExecutor.execute {
-              delegate.onQrCodeFound(
-                match.text,
-                zxingBox,
-                width,
-                height,
-                rotation,
-                true
-              )
+              if (!destroyed) {
+                delegate.onQrCodeNotFound()
+              }
             }
           }
-        } else {
-          mainExecutor.execute { delegate.onQrCodeNotFound() }
+        } catch (ex: Exception) {
+          if (ex is NotFoundException) {
+            mainExecutor.execute {
+              if (!destroyed) {
+                delegate.onQrCodeNotFound()
+              }
+            }
+          } else {
+            Log.e(Log.TAG_CAMERA, ex)
+          }
+        } finally {
+          onFinish?.run()
         }
-      } catch (ex: Exception) {
-        if (ex is NotFoundException) {
-          mainExecutor.execute { delegate.onQrCodeNotFound() }
-        } else {
-          Log.e(Log.TAG_CAMERA, ex)
-        }
-      } finally {
-        onFinish?.run()
       }
+    } catch (e: RejectedExecutionException) {
+      onFinish?.run()
     }
   }
 
@@ -248,7 +353,9 @@ class CameraQrBridge(manager: CameraManager<*>) {
     height: Int
   ): RectF? {
     // ordered in: bottom-left, top-left, top-right
-    if (result.resultPoints.size < 3) return null
+    if (result.resultPoints.size < 3) {
+      return null
+    }
 
     val points = result.resultPoints
     val bottomLeft: ResultPoint
@@ -327,15 +434,29 @@ class CameraQrBridge(manager: CameraManager<*>) {
     return zxingReader.decode(BinaryBitmap(HybridBinarizer(source)))
   }
 
-  private fun bufferAsBytes(buffer: ByteBuffer): ByteArray {
-    buffer.rewind()
-    val bytes = ByteArray(buffer.remaining())
-    buffer.get(bytes)
+  private fun copyLuminance(proxy: ImageProxy): ByteArray {
+    val plane = proxy.planes[0]
+    val buffer = plane.buffer.duplicate()
+    val offset = buffer.position()
+    val bytes = ByteArray(proxy.width * proxy.height)
+    for (row in 0..<proxy.height) {
+      val rowOffset = offset + row * plane.rowStride
+      if (plane.pixelStride == 1) {
+        buffer.position(rowOffset)
+        buffer.get(bytes, row * proxy.width, proxy.width)
+      } else {
+        for (column in 0..<proxy.width) {
+          bytes[row * proxy.width + column] = buffer.get(rowOffset + column * plane.pixelStride)
+        }
+      }
+    }
     return bytes
   }
 
   private fun rotateYuvImage(data: ByteArray, width: Int, height: Int, degrees: Int): ByteArray {
-    if (degrees == 0 || degrees % 90 != 0) return data
+    if (degrees == 0 || degrees % 90 != 0) {
+      return data
+    }
 
     val rotatedData = ByteArray(data.size)
 

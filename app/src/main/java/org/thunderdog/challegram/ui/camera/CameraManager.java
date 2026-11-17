@@ -233,11 +233,14 @@ public abstract class CameraManager <T extends View> {
     }
   }
 
+  // @MadeByLLM("gpt-6", id = "camerax-lifecycle-fixes")
   public final boolean startVideoCapture (int outRotation) {
-    if (takingPhoto || takingVideo)
+    if (takingPhoto || takingVideo || finishingVideo) {
       return false;
-    if (TdlibManager.instance().calls().promptActiveCall())
+    }
+    if (TdlibManager.instance().calls().promptActiveCall()) {
       return false;
+    }
     return onStartVideoCapture(outRotation);
   }
 
