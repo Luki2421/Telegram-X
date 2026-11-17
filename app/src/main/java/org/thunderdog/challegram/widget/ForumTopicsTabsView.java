@@ -114,8 +114,7 @@ public final class ForumTopicsTabsView
   private @Nullable Anchor pendingAnchor;
   private int placement = ForumTabsState.TOP, nextHorizontal = ForumTabsState.BOTTOM;
   private int selectedId = Integer.MIN_VALUE;
-  private int serverVisibleCount, sourceCount, sourceTail;
-  private int requestedCount = -1, requestedTail;
+  private int serverVisibleCount;
   private boolean loading, failed, endReached =
     true, destroyed, attached, revealSelection, retryRequested, hasSnapshot;
 
@@ -319,8 +318,6 @@ public final class ForumTopicsTabsView
     this.failed = error != null && !loading;
     this.endReached = endReached;
     retryRequested = false;
-    sourceCount = topics.size();
-    sourceTail = 0;
     List<Item> next = new ArrayList<>(topics.size() + 3);
     next.add(new Item(0, selectedId == 0));
     Set<Integer> seen = new HashSet<>();
@@ -329,7 +326,6 @@ public final class ForumTopicsTabsView
       if (topic == null || topic.info == null) {
         continue;
       }
-      sourceTail = topic.info.forumTopicId;
       if (topic.info.forumTopicId <= 0 ||
         topic.info.isHidden ||
         !seen.add(topic.info.forumTopicId)) {
@@ -535,6 +531,7 @@ public final class ForumTopicsTabsView
     return new Anchor(adapter.items.get(position).id, position, offset);
   }
 
+  @me.vkryl.annotation.MadeByLLM(value = "GPT-6", id = "forum-polish-audit")
   private void loadMoreIfNeeded () {
     if (destroyed || !attached || loading || failed || retryRequested || endReached || !isShown()) {
       return;
@@ -542,13 +539,8 @@ public final class ForumTopicsTabsView
     if (!ForumTopicsTabsLayout.nearEnd(layout.findLastVisibleItemPosition(), serverVisibleCount)) {
       return;
     }
-    // A repeated, empty or failed page must not create a UI-driven request loop. The host can
-    // explicitly retry; a changed server prefix permits another near-end request.
-    if (requestedCount == sourceCount && requestedTail == sourceTail) {
-      return;
-    }
-    requestedCount = sourceCount;
-    requestedTail = sourceTail;
+    // The store serializes requests and checks cursor progress, including overlapping pages.
+    // An unchanged visible prefix is not evidence that pagination stopped advancing.
     listener.onLoadMore();
   }
 
@@ -1406,7 +1398,6 @@ public final class ForumTopicsTabsView
             return;
           }
           retryRequested = true;
-          requestedCount = -1;
           update();
           listener.onRetry();
         }
