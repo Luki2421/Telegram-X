@@ -23,10 +23,12 @@ import android.view.TextureView;
 import android.view.View;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.camera.core.AspectRatio;
 import androidx.camera.core.Camera;
 import androidx.camera.core.CameraInfoUnavailableException;
 import androidx.camera.core.CameraSelector;
+import androidx.camera.core.CameraState;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageCapture;
 import androidx.camera.core.ImageCaptureException;
@@ -49,6 +51,7 @@ import androidx.camera.video.VideoRecordEvent;
 import androidx.camera.view.PreviewView;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.LifecycleOwner;
+import androidx.lifecycle.LiveData;
 import androidx.lifecycle.Observer;
 
 import com.google.common.util.concurrent.ListenableFuture;
@@ -107,6 +110,7 @@ public class CameraManagerX extends CameraManager<PreviewView> {
   private int openGeneration;
   private ImageAnalysis imageAnalyzer;
   private Camera camera;
+  private LiveData<CameraState> lastCameraState;
   private int flashMode = ImageCapture.FLASH_MODE_OFF;
   private boolean originalFacing;
   private CameraQrBridge cameraQrBridge;
@@ -232,6 +236,7 @@ public class CameraManagerX extends CameraManager<PreviewView> {
       }
       this.camera = cameraProvider.bindToLifecycle(
         (LifecycleOwner) context, cameraSelector, group.build());
+      lastCameraState = camera.getCameraInfo().getCameraState();
     } catch (Exception e) {
       Log.e(Log.TAG_CAMERA, "Use case binding failed", e);
       unbindCamera();
@@ -286,6 +291,11 @@ public class CameraManagerX extends CameraManager<PreviewView> {
     openGeneration++;
     unbindCamera();
     cameraProvider = null;
+  }
+
+  // @MadeByLLM("gpt-6.2-sol", id = "camerax-round-handoff")
+  public @Nullable LiveData<CameraState> getLastCameraState () {
+    return lastCameraState;
   }
 
   @Override

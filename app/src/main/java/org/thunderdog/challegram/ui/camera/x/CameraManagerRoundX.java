@@ -20,8 +20,10 @@ import android.graphics.SurfaceTexture;
 import android.util.Size;
 import android.view.Surface;
 
+import androidx.annotation.Nullable;
 import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
+import androidx.camera.core.CameraState;
 import androidx.camera.core.Preview;
 import androidx.camera.core.SurfaceRequest;
 import androidx.camera.core.ZoomState;
@@ -31,6 +33,8 @@ import androidx.camera.core.resolutionselector.ResolutionStrategy;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.LifecycleOwner;
+import androidx.lifecycle.LiveData;
+import androidx.lifecycle.Observer;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
@@ -48,6 +52,9 @@ import java.util.concurrent.Executor;
 public final class CameraManagerRoundX extends CameraManagerTexture
     implements RoundVideoRecorder.CameraHost {
   private final Executor mainExecutor;
+  // @MadeByLLM("gpt-6.2-sol", id = "camerax-round-handoff")
+  private @Nullable LiveData<CameraState> previousCameraState;
+  private final Observer<CameraState> previousCameraObserver = this::onPreviousCameraStateChanged;
   private ProcessCameraProvider provider;
   private Camera camera;
   private Preview preview;
@@ -67,8 +74,13 @@ public final class CameraManagerRoundX extends CameraManagerTexture
   private boolean torchEnabled;
   private int generation;
 
-  public CameraManagerRoundX (Context context, CameraDelegate delegate) {
+  public CameraManagerRoundX (
+    Context context,
+    CameraDelegate delegate,
+    @Nullable LiveData<CameraState> previousCameraState
+  ) {
     super(context, delegate);
+    this.previousCameraState = previousCameraState;
     mainExecutor = ContextCompat.getMainExecutor(context);
     cameraView.setIgnoreAspectRatio(true);
   }
@@ -107,6 +119,16 @@ public final class CameraManagerRoundX extends CameraManagerTexture
       getSurfaceTexture() == null || preview != null) {
       return;
     }
+    if (previousCameraState != null) {
+      CameraState state = previousCameraState.getValue();
+      if (state == null || state.getType() != CameraState.Type.CLOSED) {
+        // Unbind starts an asynchronous close. Wait before opening the round camera.
+        previousCameraState.observeForever(previousCameraObserver);
+        return;
+      }
+      stopObservingPreviousCamera();
+      previousCameraState = null;
+    }
     try {
       CameraSelector selector = preferFrontFacingCamera() ?
         CameraSelector.DEFAULT_FRONT_CAMERA : CameraSelector.DEFAULT_BACK_CAMERA;
@@ -135,6 +157,20 @@ public final class CameraManagerRoundX extends CameraManagerTexture
     } catch (Exception error) {
       releaseRoundRenderer();
       reportError(error);
+    }
+  }
+
+  private void onPreviousCameraStateChanged (CameraState state) {
+    if (state != null && state.getType() == CameraState.Type.CLOSED) {
+      stopObservingPreviousCamera();
+      previousCameraState = null;
+      bindCamera();
+    }
+  }
+
+  private void stopObservingPreviousCamera () {
+    if (previousCameraState != null) {
+      previousCameraState.removeObserver(previousCameraObserver);
     }
   }
 
@@ -246,6 +282,7 @@ public final class CameraManagerRoundX extends CameraManagerTexture
   }
 
   public void releaseRoundRenderer () {
+    stopObservingPreviousCamera();
     closingRenderer = renderer != null;
     if (pendingRequest != null) {
       pendingRequest.willNotProvideSurface();
@@ -332,6 +369,7 @@ public final class CameraManagerRoundX extends CameraManagerTexture
   public void destroy () {
     destroyed = true;
     closeCamera();
+    previousCameraState = null;
   }
 
   @Override

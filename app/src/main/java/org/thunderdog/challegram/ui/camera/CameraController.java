@@ -269,9 +269,16 @@ public class CameraController extends ViewController<Void> implements CameraDele
     cameraOverlayView.setGridVisible(cameraMode == MODE_MAIN && BitwiseUtils.hasFlag(newSettings, Settings.SETTING_FLAG_CAMERA_SHOW_GRID), isFocused());
   }
 
+  // @MadeByLLM("gpt-6.2-sol", id = "camerax-round-handoff")
   private CameraManager<?> createCameraManager () {
-    return cameraMode == MODE_ROUND_VIDEO ?
-      new CameraManagerRoundX(context, this) : new CameraManagerX(context, this);
+    if (cameraMode == MODE_ROUND_VIDEO) {
+      return new CameraManagerRoundX(
+        context,
+        this,
+        manager instanceof CameraManagerX ? ((CameraManagerX) manager).getLastCameraState() : null
+      );
+    }
+    return new CameraManagerX(context, this);
   }
 
   private void updateCameraMode () {
