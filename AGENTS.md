@@ -39,21 +39,12 @@ Keep this file focused on durable repository rules; put task procedures in proje
 - `app/jni`: native application code.
 - `tdlib/`, `tgcalls/`, `vkryl/`, `extension/`: supporting modules.
 - `buildSrc/`: Gradle build logic.
-- Tests and benchmarks are maintained outside this checkout, as in upstream Telegram X.
 
-## Setup and development commands
+## Development setup
 
-Run commands from the repository root with JDK 25, Git LFS, initialized submodules, and
-rustup. Use the Gradle wrapper and the SDK/NDK/Rust versions pinned by the repository.
-
-- `git submodule update --init --recursive`: initialize submodules after cloning if needed.
-- `scripts/setup-rust.sh`: install the pinned Rust toolchain and Android target. Set
-  `rust.dir` in `local.properties` to the printed value; rerun when `version.rust` in
-  `version.properties` changes.
-- `scripts/setup.sh`: configure Android SDK, NDK, and local properties.
-- `./gradlew :app:assembleLatestDebug`: build the debug APK.
-- `./gradlew :app:installLatestDebug -Pabi=arm64`: install on a connected ARM64 device.
-- `./gradlew :app:lintLatestDebug`: run Android lint.
+Follow the [build setup](README.md#build) for prerequisites and pinned toolchains.
+Run commands from the repository root and use the Gradle wrapper.
+Install on a connected ARM64 device with `./gradlew :app:installLatestDebug -Pabi=arm64`.
 
 Avoid `clean` during normal development so Gradle and native builds can reuse outputs.
 
@@ -82,33 +73,15 @@ Avoid `clean` during normal development so Gradle and native builds can reuse ou
 - Report checks and results, failures, environment blockers, checks not run, and coverage
   gaps. Distinguish existing findings from regressions introduced by the change.
 
-The checkout has no test sources, benchmarks, or `checkMinSdk`. Gradle enables external
-test infrastructure only when `tests/.git` exists. Check task availability before running
-tests; historical validation notes do not establish which tasks exist in this checkout.
+Tests and benchmarks are maintained outside the main repository. Gradle includes the external
+test infrastructure only when `tests/.git` exists. Check which Gradle tasks are available in the
+current checkout before running tests or benchmarks.
 
 ## Project skills
 
-Task workflows live in `.agents/skills/<name>/SKILL.md`. Select skills relevant to the task,
-read their `SKILL.md` before use, and load supporting files only as needed. Keep detailed
-procedures in the skill that owns them.
-
-- [android-cli](.agents/skills/android-cli/SKILL.md): SDK, emulator/device operations,
-  artifact inspection, and Android documentation lookup through the Android CLI.
-- [android-intent-security](.agents/skills/android-intent-security/SKILL.md): incoming
-  Intents, redirection, and component access audits.
-- [android-permissions-security](.agents/skills/android-permissions-security/SKILL.md):
-  permissions, IPC, and caller identity verification.
-- [android-profiler](.agents/skills/android-profiler/SKILL.md): Perfetto traces, CPU,
-  memory, battery, and frame timing investigations.
-- [anr-audit-and-fix](.agents/skills/anr-audit-and-fix/SKILL.md): ANR risks in code and ANR
-  stack dumps; use android-profiler for Perfetto trace analysis.
-- [camerax](.agents/skills/camerax/SKILL.md): CameraX features, recording lifecycles,
-  and ML Kit or Media3 camera integrations.
-- [r8-analyzer](.agents/skills/r8-analyzer/SKILL.md): R8/ProGuard rules and app size.
-- [testing-setup](.agents/skills/testing-setup/SKILL.md): test strategy and infrastructure;
-  preserve the external test layout described above.
-- [tgx-upstream-sync](.agents/skills/tgx-upstream-sync/SKILL.md): upstream integration;
-  follow the repository defaults below.
+Task workflows live in [`.agents/skills/`](.agents/skills). Use each skill's description to
+select the relevant workflow, read its `SKILL.md` before use, and load supporting files only
+as needed.
 
 ## Upstream integration
 
