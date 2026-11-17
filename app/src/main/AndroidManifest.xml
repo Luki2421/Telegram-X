@@ -365,8 +365,10 @@
       android:windowSoftInputMode="adjustPan"
       android:exported="true" />
 
+    <!-- @MadeByLLM("gpt-6", id = "native-splash-screen") -->
     <activity
       android:name=".MainActivity"
+      android:theme="@style/AppTheme.Launch"
       android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|locale|layoutDirection|uiMode"
       android:launchMode="singleTask"
       android:windowSoftInputMode="stateHidden|adjustPan"

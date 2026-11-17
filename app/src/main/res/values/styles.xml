@@ -17,6 +17,13 @@
     <item name="android:windowBackground">@color/splash</item>
     <item name="android:forceDarkAllowed">false</item>
   </style>
+  <!-- region @MadeByLLM("gpt-6", id = "native-splash-screen") -->
+  <style name="AppTheme.Launch" parent="@style/AppTheme">
+    <item name="android:windowSplashScreenBackground">@color/splash</item>
+    <item name="android:windowSplashScreenAnimatedIcon">@drawable/tgx_splash</item>
+    <item name="android:windowSplashScreenBehavior">icon_preferred</item>
+  </style>
+  <!-- endregion -->
   <style name="AppTheme.Dark" parent="@style/Theme.AppCompat.NoActionBar">
     <item name="android:windowContentOverlay">@null</item>
     <item name="android:windowActionBarOverlay">true</item>
