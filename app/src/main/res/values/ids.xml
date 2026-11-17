@@ -423,7 +423,6 @@
   <item type="id" name="btn_cameraRatio_fullScreen" />
   <item type="id" name="btn_cameraType" />
   <item type="id" name="btn_cameraTypeX" />
-  <item type="id" name="btn_cameraTypeLegacy" />
   <item type="id" name="btn_cameraTypeSystem" />
   <item type="id" name="btn_markdown" />
   <item type="id" name="btn_sizeUnit" />

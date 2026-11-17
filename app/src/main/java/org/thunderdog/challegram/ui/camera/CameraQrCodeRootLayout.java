@@ -10,6 +10,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+// @MadeByLLM("gpt-6", id = "camerax-only")
 package org.thunderdog.challegram.ui.camera;
 
 import android.content.Context;
@@ -69,7 +70,6 @@ class CameraQrCodeRootLayout extends CameraRootLayout implements FactorAnimator.
   private final int cornerSize = Screen.dp(20);
   private int cameraViewWidth;
   private int cameraViewHeight;
-  private int cameraScaledWidth;
 
   private final BoolAnimator qrFoundAnimator = new BoolAnimator(ANIMATOR_STATUS, this, AnimatorUtils.LINEAR_INTERPOLATOR, CONFIRMATION_DURATION, false);
   private final BoolAnimator qrParamsAnimator = new BoolAnimator(ANIMATOR_GENERAL, this, AnimatorUtils.OVERSHOOT_INTERPOLATOR, ANIMATION_DURATION, false);
@@ -119,27 +119,12 @@ class CameraQrCodeRootLayout extends CameraRootLayout implements FactorAnimator.
       return;
     }
 
-    float scaleX = (float) getWidth() / width;
-    float scaleY = (float) getHeight() / height;
-    //Log.e("sX %s sY %s max %s [view %s x %s, preview %s x %s] == src %s -> dst %s", scaleX, scaleY, scale, getHeight(), getWidth(), height, width, boundingBox, qrBounds);
-
-    float nx = getWidth() / 2f + (boundingBox.left - width / 2f);
-    float nx2 = getWidth() / 2f + (boundingBox.right - width / 2f);
-    float ny = getHeight() / 2f + (boundingBox.top - height / 2f);
-    float qrSize;
-    if (Settings.instance().getCameraAspectRatioMode() == Settings.CAMERA_RATIO_FULL_SCREEN) {
-      scaleX = (float) cameraScaledWidth / width;
-      RectF bbx = new RectF(
-              (boundingBox.left * scaleX),
-              (boundingBox.top * scaleY),
-              (boundingBox.right * scaleX),
-              (boundingBox.bottom * scaleY)
-      );
-      ny = bbx.top;
-      qrSize = Math.max(bbx.width(), bbx.height());
-    } else {
-      qrSize = (nx2 - nx);
-    }
+    // Both analyzers report coordinates already transformed into PreviewView pixels.
+    float scaleX = 1f;
+    float scaleY = 1f;
+    float nx = (getWidth() - width) / 2f + boundingBox.left;
+    float ny = (getHeight() - height) / 2f + boundingBox.top;
+    float qrSize = Math.max(boundingBox.width(), boundingBox.height());
 
     if (qrDebugRegions) {
       qrTextDebug = new Text.Builder(Lang.formatString("camera = %s x %s, view = %s x %s, cameraView = %s x %s\naspect = %s, zxing = %s\nsx: %s, sy: %s\nX: %s, Y: %s, size: %s\nSource bounds: %s (width: %s)", null, height, width, getHeight(), getWidth(), cameraViewHeight, cameraViewWidth, Settings.instance().getCameraAspectRatioMode(), isLegacyZxing, scaleX, scaleY, nx, ny, qrSize, boundingBox, boundingBox.width()).toString(), getWidth(), Paints.robotoStyleProvider(14), () -> Color.RED).build();
@@ -307,10 +292,6 @@ class CameraQrCodeRootLayout extends CameraRootLayout implements FactorAnimator.
         }
 
         currentLocation.copyFrom(initialLocation);
-        View possibleCameraView = ((CameraLayout) child).getChildAt(0);
-        if (possibleCameraView instanceof CameraTextureView) {
-          cameraScaledWidth = ((CameraTextureView) possibleCameraView).scaledImageWidth;
-        }
         updateBoundingBoxPaths();
       } else {
         size = currentLocation.size;

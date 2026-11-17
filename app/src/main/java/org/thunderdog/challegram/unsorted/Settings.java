@@ -13,6 +13,7 @@
  * File created on 15/11/2016
  */
 // region @MadeByLLM("gpt-6", id = "android13-arm64")
+// @MadeByLLM("gpt-6", id = "camerax-only")
 package org.thunderdog.challegram.unsorted;
 
 import android.content.Context;
@@ -3561,16 +3562,16 @@ public class Settings {
     }
   }
 
-  public static final int CAMERA_TYPE_LEGACY = 0;
   public static final int CAMERA_TYPE_X = 1;
   public static final int CAMERA_TYPE_SYSTEM = 2;
 
-  public static final int CAMERA_TYPE_DEFAULT = /*Config.CAMERA_X_AVAILABLE ? CAMERA_TYPE_X : */CAMERA_TYPE_LEGACY;
+  public static final int CAMERA_TYPE_DEFAULT = CAMERA_TYPE_X;
 
   public int getCameraType () {
 
     int type = pmc.getInt(KEY_CAMERA_TYPE, CAMERA_TYPE_DEFAULT);
-    return type != CAMERA_TYPE_X || true ? type : CAMERA_TYPE_DEFAULT;
+    // Stored Camera1 preferences (0) and unknown values migrate to the internal CameraX backend.
+    return type == CAMERA_TYPE_SYSTEM ? CAMERA_TYPE_SYSTEM : CAMERA_TYPE_X;
   }
 
   public void setCameraType (int type) {

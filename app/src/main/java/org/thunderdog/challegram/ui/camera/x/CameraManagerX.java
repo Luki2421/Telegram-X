@@ -11,6 +11,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 // region @MadeByLLM("gpt-6", id = "android13-arm64")
+// @MadeByLLM("gpt-6", id = "camerax-only")
 package org.thunderdog.challegram.ui.camera.x;
 
 import android.Manifest;
@@ -31,6 +32,8 @@ import androidx.camera.core.ImageCapture;
 import androidx.camera.core.ImageCaptureException;
 import androidx.camera.core.Preview;
 import androidx.camera.core.UseCase;
+import androidx.camera.core.UseCaseGroup;
+import androidx.camera.core.ViewPort;
 import androidx.camera.core.ZoomState;
 import androidx.camera.core.resolutionselector.AspectRatioStrategy;
 import androidx.camera.core.resolutionselector.ResolutionSelector;
@@ -74,8 +77,12 @@ public class CameraManagerX extends CameraManager<PreviewView> {
   protected PreviewView onCreateView () {
     PreviewView view = new PreviewView(context);
     view.addOnLayoutChangeListener(
-      (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
-        prepareBitmaps(v.getMeasuredWidth(), v.getMeasuredHeight())
+      (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+        prepareBitmaps(v.getMeasuredWidth(), v.getMeasuredHeight());
+        if (preview == null) {
+          bindPreview();
+        }
+      }
     );
     view.setImplementationMode(PreviewView.ImplementationMode.COMPATIBLE);
     previewStreamObserver = state -> {
@@ -134,7 +141,8 @@ public class CameraManagerX extends CameraManager<PreviewView> {
   }
 
   private void bindPreview () {
-    if (!isOpen || isPaused || cameraProvider == null) {
+    if (!isOpen || isPaused || cameraProvider == null ||
+      cameraView.getWidth() == 0 || cameraView.getHeight() == 0) {
       return;
     }
 
@@ -203,7 +211,7 @@ public class CameraManagerX extends CameraManager<PreviewView> {
         .setResolutionSelector(resolutionSelector)
         .build();
       if (cameraQrBridge == null) {
-        cameraQrBridge = new CameraQrBridge(this);
+        cameraQrBridge = new CameraQrBridge(this, cameraView);
       }
       CameraQrBridge bridge = cameraQrBridge;
       imageAnalyzer.setAnalyzer(bridge.getBackgroundExecutor(), bridge::processImage);
@@ -212,22 +220,18 @@ public class CameraManagerX extends CameraManager<PreviewView> {
     }
 
     try {
+      UseCaseGroup.Builder group = new UseCaseGroup.Builder().addUseCase(preview);
       if (needQrScanner) {
-        this.camera = cameraProvider.bindToLifecycle(
-          (LifecycleOwner) context,
-          cameraSelector,
-          preview,
-          imageAnalyzer
-        );
+        group.addUseCase(imageAnalyzer);
       } else {
-        this.camera = cameraProvider.bindToLifecycle(
-          (LifecycleOwner) context,
-          cameraSelector,
-          preview,
-          imageCapture,
-          videoCapture
-        );
+        group.addUseCase(imageCapture).addUseCase(videoCapture);
       }
+      ViewPort viewPort = cameraView.getViewPort();
+      if (viewPort != null) {
+        group.setViewPort(viewPort);
+      }
+      this.camera = cameraProvider.bindToLifecycle(
+        (LifecycleOwner) context, cameraSelector, group.build());
     } catch (Exception e) {
       Log.e(Log.TAG_CAMERA, "Use case binding failed", e);
       unbindCamera();
@@ -235,7 +239,11 @@ public class CameraManagerX extends CameraManager<PreviewView> {
       return;
     }
 
+    setPreferFrontFacingCamera(
+      camera.getCameraInfo().getLensFacing() == CameraSelector.LENS_FACING_FRONT);
     delegate.displayFatalErrorMessage(null);
+    delegate.onAvailableCamerasCountChanged(cameraProvider.getAvailableCameraInfos().size());
+    onZoomChanged(getCurrentZoom());
     Preview.SurfaceProvider surfaceProvider = cameraView.getSurfaceProvider();
     preview.setSurfaceProvider(surfaceProvider);
 

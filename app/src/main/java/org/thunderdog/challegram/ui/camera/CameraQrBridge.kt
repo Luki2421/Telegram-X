@@ -11,26 +11,27 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 // region @MadeByLLM("gpt-6", id = "android13-arm64")
+// @MadeByLLM("gpt-6", id = "camerax-only")
 package org.thunderdog.challegram.ui.camera
 
-import android.graphics.ImageFormat
 import android.graphics.RectF
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.mlkit.vision.MlKitAnalyzer
+import androidx.camera.view.PreviewView
+import androidx.camera.view.transform.CoordinateTransform
+import androidx.camera.view.transform.ImageProxyTransformFactory
+import androidx.camera.view.transform.OutputTransform
 import androidx.core.content.ContextCompat
-import com.google.mlkit.common.MlKitException
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.common.InputImage
 import com.google.zxing.*
 import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.QRCodeReader
 import com.google.zxing.qrcode.detector.FinderPattern
 import org.thunderdog.challegram.Log
 import org.thunderdog.challegram.U
-import org.thunderdog.challegram.ui.camera.legacy.CameraApiLegacy
 import org.thunderdog.challegram.unsorted.AppContext
 import org.thunderdog.challegram.unsorted.Settings
 import tgx.flavor.Barcode
@@ -38,11 +39,10 @@ import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
-import kotlin.math.max
-import kotlin.math.min
 
 // @MadeByLLM("gpt-6", id = "camerax-lifecycle-fixes")
-class CameraQrBridge(manager: CameraManager<*>) {
+@Suppress("UnsafeOptInUsageError")
+class CameraQrBridge(manager: CameraManager<*>, private val previewView: PreviewView) {
   val backgroundExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
   private val delegate: CameraDelegate = manager.delegate
@@ -56,6 +56,9 @@ class CameraQrBridge(manager: CameraManager<*>) {
   private var analyzerHeight = 0
   private var analyzerRotation = -1
   private var pendingDetections = 0
+  private val transformFactory = ImageProxyTransformFactory().apply {
+    isUsingRotationDegrees = true
+  }
 
   init {
     if (U.isGooglePlayServicesAvailable(AppContext.get()) &&
@@ -123,7 +126,7 @@ class CameraQrBridge(manager: CameraManager<*>) {
           analyzerRotation = rotation
           cameraXAnalyzer = MlKitAnalyzer(
             listOf(scanner),
-            ImageAnalysis.COORDINATE_SYSTEM_ORIGINAL,
+            ImageAnalysis.COORDINATE_SYSTEM_VIEW_REFERENCED,
             mainExecutor
           ) { result ->
             try {
@@ -134,7 +137,7 @@ class CameraQrBridge(manager: CameraManager<*>) {
                   mlkitFailed = true
                   delegate.onQrCodeNotFound()
                 } else {
-                  reportBarcodes(result.getValue(scanner), width, height, rotation)
+                  reportBarcodes(result.getValue(scanner))
                 }
               }
             } finally {
@@ -142,8 +145,18 @@ class CameraQrBridge(manager: CameraManager<*>) {
             }
           }
         }
-        // MlKitAnalyzer owns the proxy until all asynchronous detectors have completed.
-        cameraXAnalyzer!!.analyze(proxy)
+        val analyzer = cameraXAnalyzer!!
+        mainExecutor.execute {
+          val transform = previewView.sensorToViewTransform
+          if (destroyed || transform == null) {
+            proxy.close()
+            endDetection()
+          } else {
+            // MlKitAnalyzer maps detections into PreviewView coordinates and owns the frame.
+            analyzer.updateTransform(transform)
+            analyzer.analyze(proxy)
+          }
+        }
       } catch (e: Exception) {
         proxy.close()
         endDetection()
@@ -152,7 +165,13 @@ class CameraQrBridge(manager: CameraManager<*>) {
       }
     } else {
       try {
-        zxingImplementation(copyLuminance(proxy), width, height, rotation) {
+        zxingImplementation(
+          copyLuminance(proxy),
+          width,
+          height,
+          rotation,
+          transformFactory.getOutputTransform(proxy)
+        ) {
           proxy.close()
         }
       } catch (e: Exception) {
@@ -162,95 +181,8 @@ class CameraQrBridge(manager: CameraManager<*>) {
     }
   }
 
-  fun processImage(
-    data: ByteArray,
-    previewWidth: Int,
-    previewHeight: Int,
-    legacyApi: CameraApiLegacy
-  ) {
-    val rotation = delegate.getCurrentCameraOrientation()
-
-    if (this.isGmsImplementationSupported) {
-      gmsImplementation(
-        InputImage.fromByteArray(
-          data,
-          previewWidth,
-          previewHeight,
-          rotation,
-          ImageFormat.NV21
-        ),
-        data
-      ) {
-        legacyApi.notifyCanReadNextFrame()
-      }
-    } else {
-      zxingImplementation(
-        data,
-        previewWidth,
-        previewHeight,
-        rotation
-      ) {
-        legacyApi.notifyCanReadNextFrame()
-      }
-    }
-  }
-
-  val isGmsImplementationSupported: Boolean
-    get() = !destroyed && barcodeScanner != null && !mlkitFailed
-
-  private fun gmsImplementation(
-    image: InputImage,
-    safeData: ByteArray,
-    onCompleteListener: (() -> Unit)?
-  ) {
-    if (!beginDetection()) {
-      onCompleteListener?.invoke()
-      return
-    }
-    try {
-      barcodeScanner!!.process(image).addOnCompleteListener(mainExecutor) { task ->
-        try {
-          if (destroyed) {
-            onCompleteListener?.invoke()
-          } else if (task.isSuccessful) {
-            reportBarcodes(task.result, image.width, image.height, image.rotationDegrees)
-            onCompleteListener?.invoke()
-          } else if (task.exception is MlKitException) {
-            mlkitFailed = true
-            zxingImplementation(
-              safeData,
-              image.width,
-              image.height,
-              image.rotationDegrees,
-              onCompleteListener
-            )
-          } else {
-            Log.e(Log.TAG_CAMERA, task.exception)
-            onCompleteListener?.invoke()
-          }
-        } finally {
-          endDetection()
-        }
-      }
-    } catch (e: Exception) {
-      endDetection()
-      Log.e(Log.TAG_CAMERA, e)
-      mlkitFailed = true
-      zxingImplementation(
-        safeData,
-        image.width,
-        image.height,
-        image.rotationDegrees,
-        onCompleteListener
-      )
-    }
-  }
-
   private fun reportBarcodes(
-    barcodes: List<Barcode>?,
-    width: Int,
-    height: Int,
-    rotation: Int
+    barcodes: List<Barcode>?
   ) {
     val first = barcodes?.firstOrNull { !it.rawValue.isNullOrEmpty() }
     if (first == null) {
@@ -260,8 +192,8 @@ class CameraQrBridge(manager: CameraManager<*>) {
     delegate.onQrCodeFound(
       first.rawValue,
       first.boundingBox?.let { RectF(it) },
-      if (U.isRotated(rotation)) width else height,
-      if (U.isRotated(rotation)) height else width,
+      previewView.height,
+      previewView.width,
       0,
       false
     )
@@ -272,131 +204,67 @@ class CameraQrBridge(manager: CameraManager<*>) {
     width: Int,
     height: Int,
     rotation: Int,
-    onFinish: Runnable?
+    sourceTransform: OutputTransform,
+    onFinish: Runnable
   ) {
     if (destroyed) {
-      onFinish?.run()
+      onFinish.run()
       return
     }
     try {
-      backgroundExecutor.execute analysis@ {
+      backgroundExecutor.execute {
         try {
-          if (destroyed) {
-            return@analysis
-          }
-          val sensorRotation = delegate.getCurrentCameraSensorOrientation()
-          val match = zxingImplementationImpl(data, width, height, rotation)
-          if (match != null && !match.text.isNullOrEmpty()) {
-            val zxingBox: RectF?
-            if (sensorRotation != rotation && U.isRotated(sensorRotation)) {
-              zxingBox = zxingBoundingBox(match, rotation, true, width, height)
-              mainExecutor.execute report@ {
-                if (destroyed) {
-                  return@report
-                }
-                delegate.onQrCodeFound(
-                  match.text,
-                  zxingBox,
-                  height,
-                  width,
-                  rotation,
-                  true
-                )
-              }
-            } else {
-              zxingBox = zxingBoundingBox(match, rotation, false, width, height)
-              mainExecutor.execute report@ {
-                if (destroyed) {
-                  return@report
-                }
-                delegate.onQrCodeFound(
-                  match.text,
-                  zxingBox,
-                  width,
-                  height,
-                  rotation,
-                  true
-                )
-              }
-            }
-          } else {
+          if (!destroyed) {
+            val match = zxingImplementationImpl(data, width, height, rotation)
+            val bounds = match?.let { zxingBoundingBox(it) }
             mainExecutor.execute {
               if (!destroyed) {
-                delegate.onQrCodeNotFound()
+                val targetTransform = previewView.outputTransform
+                if (match != null && bounds != null && targetTransform != null) {
+                  CoordinateTransform(sourceTransform, targetTransform).mapRect(bounds)
+                  delegate.onQrCodeFound(
+                    match.text,
+                    bounds,
+                    previewView.height,
+                    previewView.width,
+                    0,
+                    true
+                  )
+                } else {
+                  delegate.onQrCodeNotFound()
+                }
               }
             }
           }
-        } catch (ex: Exception) {
-          if (ex is NotFoundException) {
-            mainExecutor.execute {
-              if (!destroyed) {
-                delegate.onQrCodeNotFound()
-              }
+        } catch (error: Exception) {
+          if (error !is NotFoundException) {
+            Log.e(Log.TAG_CAMERA, error)
+          }
+          mainExecutor.execute {
+            if (!destroyed) {
+              delegate.onQrCodeNotFound()
             }
-          } else {
-            Log.e(Log.TAG_CAMERA, ex)
           }
         } finally {
-          onFinish?.run()
+          onFinish.run()
         }
       }
-    } catch (e: RejectedExecutionException) {
-      onFinish?.run()
+    } catch (error: RejectedExecutionException) {
+      onFinish.run()
     }
   }
 
-  private fun zxingBoundingBox(
-    result: Result,
-    rotation: Int,
-    sensorRotationInverted: Boolean,
-    width: Int,
-    height: Int
-  ): RectF? {
-    // ordered in: bottom-left, top-left, top-right
+  private fun zxingBoundingBox(result: Result): RectF? {
     if (result.resultPoints.size < 3) {
       return null
     }
-
     val points = result.resultPoints
-    val bottomLeft: ResultPoint
-    val topLeft: ResultPoint
-    val topRight: ResultPoint
-    val moduleSize: Int
-
-    if (U.isRotated(rotation)) {
-      bottomLeft = points[2]
-      topLeft = points[1]
-      topRight = points[0]
-    } else {
-      bottomLeft = points[0]
-      topLeft = points[1]
-      topRight = points[2]
-    }
-
-    if (bottomLeft is FinderPattern) {
-      moduleSize = bottomLeft.getEstimatedModuleSize().toInt() * 2
-    } else {
-      moduleSize = 0
-    }
-
-    var x1 = min(min(topLeft.getX(), topRight.getX()), bottomLeft.getX()).toInt()
-    var x2 = max(max(topLeft.getX(), topRight.getX()), bottomLeft.getX()).toInt()
-    val y1 = min(min(topLeft.getY(), topRight.getY()), bottomLeft.getY()).toInt()
-    val y2 = max(max(topLeft.getY(), topRight.getY()), bottomLeft.getY()).toInt()
-
-    if (sensorRotationInverted) {
-      // these rotations need inverting zones
-      val px1 = width - x1
-      val px2 = width - x2
-      x1 = px2
-      x2 = px1
-    }
-
+    val moduleSize = (points[0] as? FinderPattern)?.estimatedModuleSize?.times(2) ?: 0f
     return RectF(
-      (x1 - moduleSize).toFloat(),
-      (y1 - moduleSize).toFloat(),
-      (x2 + moduleSize).toFloat(),
-      (y2 + moduleSize).toFloat()
+      points.minOf { it.x } - moduleSize,
+      points.minOf { it.y } - moduleSize,
+      points.maxOf { it.x } + moduleSize,
+      points.maxOf { it.y } + moduleSize
     )
   }
 

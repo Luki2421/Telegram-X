@@ -29,6 +29,7 @@ import android.opengl.GLES20;
 import android.opengl.GLUtils;
 import android.os.Build;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.Message;
 import android.os.SystemClock;
@@ -38,7 +39,6 @@ import android.view.Surface;
 import org.thunderdog.challegram.Log;
 import org.thunderdog.challegram.U;
 import org.thunderdog.challegram.tool.UI;
-import org.thunderdog.challegram.ui.camera.legacy.CameraApi;
 import org.thunderdog.challegram.unsorted.Settings;
 import org.thunderdog.challegram.video.Mp4Output;
 import org.thunderdog.challegram.video.old.Mp4Movie;
@@ -63,7 +63,13 @@ import javax.microedition.khronos.opengles.GL;
 import me.vkryl.core.BitwiseUtils;
 
 
+// @MadeByLLM("gpt-6", id = "camerax-only")
 public class RoundVideoRecorder {
+  public interface CameraHost {
+    void onInputSurfaceReady (RoundVideoRecorder recorder, SurfaceTexture texture);
+    void onPreviewRendered (RoundVideoRecorder recorder);
+    void onCameraError (RoundVideoRecorder recorder, Throwable error);
+  }
   public interface Delegate {
     /**
      * Start progress timer at this point, if still required
@@ -85,60 +91,58 @@ public class RoundVideoRecorder {
 
   private static class RoundHandler extends Handler {
     private final RoundVideoRecorder context;
-    private final boolean isBackground;
 
-    public RoundHandler (Looper looper, RoundVideoRecorder context, boolean isBackground) {
+    public RoundHandler (Looper looper, RoundVideoRecorder context) {
       super(looper);
       this.context = context;
-      this.isBackground = isBackground;
     }
 
     @Override
     public void handleMessage (Message msg) {
-      if (isBackground) {
-        context.handleBackgroundMessage(msg);
-      } else {
-        context.handleCameraMessage(msg);
-      }
+      context.handleBackgroundMessage(msg);
     }
   }
 
-  private final CameraApi context;
+  private final CameraHost context;
+  private final HandlerThread renderThread;
 
-  private final Handler cameraHandler, backgroundHandler;
+  private final Handler backgroundHandler;
 
   private final SurfaceTexture mSurfaceTexture;
   private final int mSurfaceWidth, mSurfaceHeight;
   private int mPreviewWidth, mPreviewHeight;
   private int mOrientation;
+  private boolean mirrored;
 
   private Delegate mDelegate;
   private String workingKey;
-  private String outputPath;
   private volatile boolean isCapturing; // Whether capture should be in progress
   private volatile boolean finishCapture; // Whether capture result should be saved
 
-  public RoundVideoRecorder (CameraApi context, SurfaceTexture surfaceTexture, int surfaceWidth, int surfaceHeight) {
+  public RoundVideoRecorder (
+    CameraHost context,
+    SurfaceTexture surfaceTexture,
+    int surfaceWidth,
+    int surfaceHeight
+  ) {
     this.context = context;
-    this.cameraHandler = new RoundHandler(context.getCameraHandler().getLooper(), this, false);
-    this.backgroundHandler = new RoundHandler(context.getBackgroundHandler().getLooper(), this, true);
+    renderThread = new HandlerThread("RoundCameraXGL");
+    renderThread.start();
+    this.backgroundHandler = new RoundHandler(renderThread.getLooper(), this);
     this.mSurfaceTexture = surfaceTexture;
     this.mSurfaceWidth = surfaceWidth;
     this.mSurfaceHeight = surfaceHeight;
   }
 
-  public void setPreviewSizes (int width, int height, int orientation) {
+  public void setPreviewSizes (int width, int height, int orientation, boolean mirror) {
     if (!checkBackgroundThread()) {
-      backgroundHandler.sendMessage(Message.obtain(backgroundHandler, BG_ACTION_SET_SIZES, width, height, orientation));
+      backgroundHandler.post(() -> setPreviewSizes(width, height, orientation, mirror));
       return;
     }
-    if (mPreviewWidth != 0 || mPreviewHeight != 0) {
-      return;
-    }
-    this.mPreviewWidth = width;
-    this.mPreviewHeight = height;
-    this.mOrientation = orientation;
-
+    mPreviewWidth = width;
+    mPreviewHeight = height;
+    mOrientation = orientation;
+    mirrored = mirror;
     updateSizes();
   }
 
@@ -152,19 +156,6 @@ public class RoundVideoRecorder {
 
   private volatile boolean isSwitchingToNewCamera;
 
-  public boolean canSwitchToNewCamera () {
-    return !isSwitchingToNewCamera && initied; // && eglSurface != null;
-  }
-
-  public void switchToNewCamera () {
-    isSwitchingToNewCamera = true;
-    if (!checkBackgroundThread()) {
-      backgroundHandler.sendMessage(Message.obtain(backgroundHandler, BG_ACTION_REINIT));
-      return;
-    }
-    doSwitchToNewCamera();
-  }
-
   public void onCameraClose () {
     if (!checkBackgroundThread()) {
       backgroundHandler.sendMessage(Message.obtain(backgroundHandler, BG_ACTION_CLOSE));
@@ -175,95 +166,70 @@ public class RoundVideoRecorder {
 
   private boolean isDestroyed;
 
-  public void destroy () {
-    if (!checkBackgroundThread()) {
-      backgroundHandler.sendMessage(Message.obtain(backgroundHandler, BG_ACTION_DESTROY));
-      return;
-    }
-    if (!isDestroyed) {
-      isDestroyed = true;
-      doDestroy();
-    }
-  }
-
-  private SurfaceTexture mCameraSurface;
-
-  public SurfaceTexture getCameraTexture () {
-    return mCameraSurface;
+  public void destroy (Runnable after) {
+    backgroundHandler.post(() -> {
+      if (!isDestroyed) {
+        isDestroyed = true;
+        try {
+          doDestroy();
+        } finally {
+          renderThread.quitSafely();
+          UI.post(after);
+        }
+      } else {
+        UI.post(after);
+      }
+    });
   }
 
   // Entry point
 
   public void startCapture (Delegate delegate, String key, String outputPath) {
-    Log.i(Log.TAG_ROUND, "startCapture: %s, path: %s, isCapturing: %b", key, outputPath, isCapturing);
-    if (!isCapturing) {
-      this.isCapturing = true;
-      this.mDelegate = delegate;
-      this.workingKey = key;
-      this.outputPath = outputPath;
-      boolean success = false;
-      try {
-        success = startCaptureImpl();
-      } catch (Throwable t) {
-        Log.w(Log.TAG_ROUND, "Cannot start round video capture", t);
+    backgroundHandler.post(() -> {
+      if (isDestroyed || workingKey != null) {
+        UI.post(() -> delegate.onVideoRecordingFinished(key, -1, -1, TimeUnit.MILLISECONDS));
+        return;
       }
-      if (!success) {
-        this.isCapturing = false;
-      }
-    }
+      mDelegate = delegate;
+      workingKey = key;
+      cameraFile = new File(outputPath);
+      isCapturing = true;
+    });
   }
 
   public void finishCapture (String key, boolean saveResult) {
-    Log.i(Log.TAG_ROUND, "finishCapture: %s, saveResult: %b, isCapturing: %b", key, saveResult, isCapturing);
-    if (isCapturing) {
-      this.finishCapture = saveResult;
-      this.isCapturing = false;
-      stopCaptureImpl();
-    }
+    backgroundHandler.post(() -> {
+      // Cancellation can arrive after the controller has cleared its generation key.
+      if (!isCapturing || (key != null && !key.equals(workingKey))) {
+        return;
+      }
+      finishCapture = saveResult;
+      isCapturing = false;
+      if (recording) {
+        recording = false;
+        videoEncoder.stopRecording(saveResult ? 1 : 0);
+      } else {
+        dispatchVideoRecordFinished(key, -1, -1, TimeUnit.MILLISECONDS);
+      }
+    });
   }
 
   // LAYER
 
-  private static final int CAM_ACTION_CREATE = 0;
-  private static final int CAM_ACTION_START = 1;
-
-  private void handleCameraMessage (Message msg) { // Camera thread
-    switch (msg.what) {
-      case CAM_ACTION_CREATE:
-        createCamera((SurfaceTexture) msg.obj);
-        break;
-      case CAM_ACTION_START:
-        doStartRecord();
-        break;
-    }
-  }
-
   private static final int BG_ACTION_INIT = 0;
-  private static final int BG_ACTION_REINIT = 1;
-  private static final int BG_ACTION_DESTROY = 2;
   private static final int BG_ACTION_CLOSE = 3;
   private static final int BG_ACTION_RENDER = 4;
-  private static final int BG_ACTION_SET_SIZES = 5;
 
   private void handleBackgroundMessage (Message msg) { // Background thread (GL)
     switch (msg.what) {
       case BG_ACTION_INIT:
         openCamera();
         break;
-      case BG_ACTION_REINIT:
-        switchToNewCamera();
-        break;
-      case BG_ACTION_DESTROY:
-        destroy();
-        break;
       case BG_ACTION_CLOSE:
         onCameraClose();
         break;
       case BG_ACTION_RENDER:
         doRender((Integer) msg.obj);
-        break;
-      case BG_ACTION_SET_SIZES:
-        setPreviewSizes(msg.arg1, msg.arg2, (Integer) msg.obj);
         break;
     }
   }
@@ -317,6 +283,8 @@ public class RoundVideoRecorder {
     }
   }
 
+  private boolean resultDispatched;
+
   private void dispatchVideoRecordFinished (String key, long resultFileSize, long resultDuration, TimeUnit resultDurationUnit) {
     if (!checkUiThread()) {
       uiHandler.sendMessage(Message.obtain(
@@ -328,7 +296,8 @@ public class RoundVideoRecorder {
       ));
       return;
     }
-    if (mDelegate != null) {
+    if (mDelegate != null && !resultDispatched) {
+      resultDispatched = true;
       mDelegate.onVideoRecordingFinished(key, resultFileSize, resultDuration, resultDurationUnit);
     }
   }
@@ -343,33 +312,13 @@ public class RoundVideoRecorder {
     }
   }
 
-  private boolean checkCameraThread () {
-    return context.checkCameraThread();
-  }
-
   private boolean checkBackgroundThread () {
-    return context.checkBackgroundThread();
+    return Looper.myLooper() == renderThread.getLooper();
   }
 
   // Impl
 
   private File cameraFile;
-
-  private boolean startCaptureImpl () throws Throwable {
-    cameraFile = new File(outputPath);
-    /*if (!cameraFile.exists() && !cameraFile.createNewFile()) {
-      return false;
-    }*/
-
-    doStartRecord();
-
-    return true;
-  }
-
-  private void stopCaptureImpl () {
-    destroy();
-  }
-
 
   // Copypasting
 
@@ -392,22 +341,23 @@ public class RoundVideoRecorder {
       "attribute vec4 aPosition;\n" +
       "attribute vec4 aTextureCoord;\n" +
       "varying vec2 vTextureCoord;\n" +
+      "varying vec2 vOutputCoord;\n" +
       "void main() {\n" +
       "   gl_Position = uMVPMatrix * aPosition;\n" +
+      "   vOutputCoord = aPosition.xy;\n" +
       "   vTextureCoord = (uSTMatrix * aTextureCoord).xy;\n" +
       "}\n";
 
+  // CameraX can rotate/crop the sampled texture; the circular mask must stay in output space.
   private static final String FRAGMENT_SHADER =
     "#extension GL_OES_EGL_image_external : require\n" +
       "precision highp float;\n" +
       "varying vec2 vTextureCoord;\n" +
-      "uniform float scaleX;\n" +
-      "uniform float scaleY;\n" +
+      "varying vec2 vOutputCoord;\n" +
       "uniform float alpha;\n" +
       "uniform samplerExternalOES sTexture;\n" +
       "void main() {\n" +
-      "   vec2 coord = vec2((vTextureCoord.x - 0.5) * scaleX, (vTextureCoord.y - 0.5) * scaleY);\n" +
-      "   float coef = ceil(clamp(0.2601 - dot(coord, coord), 0.0, 1.0));\n" +
+      "   float coef = ceil(clamp(1.0404 - dot(vOutputCoord, vOutputCoord), 0.0, 1.0));\n" +
       "   vec3 color = texture2D(sTexture, vTextureCoord).rgb * coef + (1.0 - step(0.001, coef));\n" +
       "   gl_FragColor = vec4(color * alpha, alpha);\n" +
       "}\n";
@@ -431,7 +381,14 @@ public class RoundVideoRecorder {
 
   private void prepareGL () {
     updateSizes();
-    initied = initGL();
+    try {
+      initied = initGL();
+      if (!initied) {
+        throw new IllegalStateException("Unable to initialize round video renderer");
+      }
+    } catch (Throwable error) {
+      UI.post(() -> context.onCameraError(this, error));
+    }
   }
 
   private void updateSizes () {
@@ -457,13 +414,29 @@ public class RoundVideoRecorder {
       scaleX = scaleY;
       scaleY = temp;
     }
+    if (textureBuffer != null) {
+      float textureX = 0.5f / scaleX;
+      float textureY = 0.5f / scaleY;
+      float[] coordinates = {
+        0.5f - textureX, 0.5f - textureY,
+        0.5f + textureX, 0.5f - textureY,
+        0.5f - textureX, 0.5f + textureY,
+        0.5f + textureX, 0.5f + textureY
+      };
+      for (int index = 0; index < coordinates.length; index++) {
+        textureBuffer.put(index, coordinates[index]);
+      }
+    }
     rotationAngle = mOrientation;
     surfaceTexture = mSurfaceTexture;
 
-    android.opengl.Matrix.setIdentityM(mMVPMatrix, 0);
+    float[] transform = new float[16];
+    android.opengl.Matrix.setIdentityM(transform, 0);
+    android.opengl.Matrix.scaleM(transform, 0, mirrored ? -1 : 1, 1, 1);
     if (rotationAngle != 0) {
-      android.opengl.Matrix.rotateM(mMVPMatrix, 0, rotationAngle, 0, 0, 1);
+      android.opengl.Matrix.rotateM(transform, 0, rotationAngle, 0, 0, 1);
     }
+    mMVPMatrix = transform;
   }
 
   private static int loadShader (int type, String shaderCode) {
@@ -504,7 +477,7 @@ public class RoundVideoRecorder {
 
   private VideoRecorder videoEncoder;
 
-  private float[] mMVPMatrix = new float[16];
+  private volatile float[] mMVPMatrix = new float[16];
   private float[] mSTMatrix = new float[16];
   private float[] moldSTMatrix = new float[16];
 
@@ -634,8 +607,6 @@ public class RoundVideoRecorder {
     GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
     GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
 
-    android.opengl.Matrix.setIdentityM(mMVPMatrix, 0);
-
     cameraSurface = new SurfaceTexture(cameraTexture[0]);
     cameraSurface.setOnFrameAvailableListener(surfaceTexture -> requestRender());
     createCamera(cameraSurface);
@@ -660,52 +631,17 @@ public class RoundVideoRecorder {
     }
   }
 
-  private void doSwitchToNewCamera () {
-    context.openCameraIfStillNeeded(this);
-  }
-
   private void doRender (Integer cameraId) {
-    onDraw(cameraId);
+    try {
+      onDraw(cameraId);
+    } catch (Throwable error) {
+      UI.post(() -> context.onCameraError(this, error));
+    }
   }
 
-  private void createCamera(final SurfaceTexture surfaceTexture) {
-    if (!checkCameraThread()) {
-      cameraHandler.sendMessage(Message.obtain(cameraHandler, CAM_ACTION_CREATE, surfaceTexture));
-      return;
-    }
-
-    surfaceTexture.setDefaultBufferSize(mPreviewWidth, mPreviewHeight);
-    mCameraSurface = surfaceTexture;
-    context.openCameraIfStillNeeded(this);
-
-   /* AndroidUtilities.runOnUIThread(new Runnable() {
-      @Override
-      public void run() {
-        if (cameraThread == null) {
-          return;
-        }
-        FileLog.i("create camera session");
-
-
-
-        cameraSession = new CameraSession(selectedCamera, previewSize, pictureSize, ImageFormat.JPEG);
-        cameraThread.setCurrentSession(cameraSession);
-        CameraController.getInstance().openRound(cameraSession, surfaceTexture, new Runnable() {
-          @Override
-          public void run() {
-            if (cameraSession != null) {
-              FileLog.i("camera initied");
-              cameraSession.setInitied();
-            }
-          }
-        }, new Runnable() {
-          @Override
-          public void run() {
-            cameraThread.setCurrentSession(cameraSession);
-          }
-        });
-      }
-    });*/
+  private void createCamera (final SurfaceTexture texture) {
+    texture.setDefaultBufferSize(mPreviewWidth, mPreviewHeight);
+    UI.post(() -> context.onInputSurfaceReady(this, texture));
   }
 
   private void doReinitToNextCamera () {
@@ -727,6 +663,7 @@ public class RoundVideoRecorder {
       cameraTexture[0] = 0;
     }
     cameraId++;
+    previewRendered = false;
     cameraReady = false;
 
     GLES20.glGenTextures(1, cameraTexture, 0);
@@ -742,18 +679,29 @@ public class RoundVideoRecorder {
   }
 
   private void doDestroy () {
-    finish();
+    isCapturing = false;
     if (recording) {
+      recording = false;
       videoEncoder.stopRecording(finishCapture ? 1 : 0);
+    } else if (workingKey != null && !finishCapture) {
+      dispatchVideoRecordFinished(workingKey, -1, -1, TimeUnit.MILLISECONDS);
     }
+    if (cameraSurface != null) {
+      cameraSurface.setOnFrameAvailableListener(null);
+      cameraSurface.release();
+      cameraSurface = null;
+    }
+    finish();
   }
 
   public boolean isCapturing () {
-    return isCapturing || finishCapture || recording;
+    return isCapturing;
   }
 
+  private boolean previewRendered;
+
   private void onDraw(Integer cameraId) {
-    if (!initied || eglSurface == null) {
+    if (!initied || eglSurface == null || !cameraId.equals(this.cameraId)) {
       return;
     }
 
@@ -779,12 +727,6 @@ public class RoundVideoRecorder {
         videoEncoder.startRecording(cameraFile, resolution, bitrate, EGL14.eglGetCurrentContext());
         recordStartTime = SystemClock.uptimeMillis();
         recording = true;
-        int orientation = rotationAngle;
-        if (orientation == 90 || orientation == 270) {
-          float temp = scaleX;
-          scaleX = scaleY;
-          scaleY = temp;
-        }
         dispatchVideoRecordStarted(workingKey, recordStartTime);
       }
 
@@ -813,19 +755,14 @@ public class RoundVideoRecorder {
     GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0);
     GLES20.glUseProgram(0);
 
-    egl10.eglSwapBuffers(eglDisplay, eglSurface);
+    if (egl10.eglSwapBuffers(eglDisplay, eglSurface) && !previewRendered) {
+      previewRendered = true;
+      UI.post(() -> context.onPreviewRendered(this));
+    }
   }
 
   private long recordStartTime;
   private boolean recording;
-
-  private void doStartRecord () {
-    if (!checkCameraThread()) {
-      cameraHandler.sendMessage(Message.obtain(cameraHandler, CAM_ACTION_START));
-      return;
-    }
-    // Nothing?
-  }
 
   private static final int MSG_START_RECORDING = 0;
   private static final int MSG_STOP_RECORDING = 1;
@@ -944,8 +881,6 @@ public class RoundVideoRecorder {
     private int textureMatrixHandle;
     private int positionHandle;
     private int textureHandle;
-    private int scaleXHandle;
-    private int scaleYHandle;
     private int alphaHandle;
 
     private Integer lastCameraId = 0;
@@ -1167,8 +1102,6 @@ public class RoundVideoRecorder {
       GLES20.glEnableVertexAttribArray(positionHandle);
       GLES20.glVertexAttribPointer(textureHandle, 2, GLES20.GL_FLOAT, false, 8, textureBuffer);
       GLES20.glEnableVertexAttribArray(textureHandle);
-      GLES20.glUniform1f(scaleXHandle, scaleX);
-      GLES20.glUniform1f(scaleYHandle, scaleY);
       GLES20.glUniformMatrix4fv(vertexMatrixHandle, 1, false, mMVPMatrix, 0);
 
       GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
@@ -1346,7 +1279,6 @@ public class RoundVideoRecorder {
         movie.setSize(videoWidth, videoHeight);
         mediaMuxer = new Mp4OutputImpl().createMovie(movie);
 
-        doStartRecord();
       } catch (Exception ioe) {
         throw new RuntimeException(ioe);
       }
@@ -1427,8 +1359,6 @@ public class RoundVideoRecorder {
         } else {
           positionHandle = GLES20.glGetAttribLocation(drawProgram, "aPosition");
           textureHandle = GLES20.glGetAttribLocation(drawProgram, "aTextureCoord");
-          scaleXHandle = GLES20.glGetUniformLocation(drawProgram, "scaleX");
-          scaleYHandle = GLES20.glGetUniformLocation(drawProgram, "scaleY");
           alphaHandle = GLES20.glGetUniformLocation(drawProgram, "alpha");
           vertexMatrixHandle = GLES20.glGetUniformLocation(drawProgram, "uMVPMatrix");
           textureMatrixHandle = GLES20.glGetUniformLocation(drawProgram, "uSTMatrix");

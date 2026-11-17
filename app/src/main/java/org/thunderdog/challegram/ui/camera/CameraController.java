@@ -13,6 +13,7 @@
  * File created on 08/08/2017
  */
 // region @MadeByLLM("gpt-6", id = "android13-arm64")
+// @MadeByLLM("gpt-6", id = "camerax-only")
 package org.thunderdog.challegram.ui.camera;
 
 import android.Manifest;
@@ -25,7 +26,6 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -40,7 +40,6 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 
 import androidx.annotation.AnyThread;
-import androidx.annotation.ChecksSdkIntAtLeast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
@@ -71,7 +70,7 @@ import org.thunderdog.challegram.tool.Strings;
 import org.thunderdog.challegram.tool.UI;
 import org.thunderdog.challegram.tool.Views;
 import org.thunderdog.challegram.ui.MessagesController;
-import org.thunderdog.challegram.ui.camera.legacy.CameraManagerLegacy;
+import org.thunderdog.challegram.ui.camera.x.CameraManagerRoundX;
 import org.thunderdog.challegram.ui.camera.x.CameraManagerX;
 import org.thunderdog.challegram.unsorted.Settings;
 import org.thunderdog.challegram.widget.NoScrollTextView;
@@ -114,7 +113,6 @@ public class CameraController extends ViewController<Void> implements CameraDele
   public static final int MODE_ROUND_VIDEO = 1;
   public static final int MODE_QR = 2;
 
-  private boolean forceLegacy;
   private int cameraMode;
   private @Nullable ReadyListener readyListener;
   private @Nullable QrCodeListener qrCodeListener;
@@ -154,8 +152,8 @@ public class CameraController extends ViewController<Void> implements CameraDele
 
       return;
     }
-    setForceLegacy(mode == MODE_ROUND_VIDEO || mode == MODE_QR);
     this.cameraMode = mode;
+    updateCameraMode();
     if (contentView != null) {
       updateContentScale();
       updateQrButtonHide();
@@ -250,11 +248,8 @@ public class CameraController extends ViewController<Void> implements CameraDele
     contentShadow.setSimpleBottomTransparentShadow(true);
     rootLayout.addView(contentShadow);
 
-    if (needCameraX()) {
-      manager = new CameraManagerX(context, this);
-    } else {
-      manager = new CameraManagerLegacy(context, this);
-    }
+    manager = createCameraManager();
+    managerUsesQrScanner = useQrScanner();
 
     contentView.addView(manager.getView());
     switchCameraButton.setCameraIconRes(manager.preferFrontFacingCamera());
@@ -274,47 +269,27 @@ public class CameraController extends ViewController<Void> implements CameraDele
     cameraOverlayView.setGridVisible(cameraMode == MODE_MAIN && BitwiseUtils.hasFlag(newSettings, Settings.SETTING_FLAG_CAMERA_SHOW_GRID), isFocused());
   }
 
-  public boolean isLegacy () {
-    return manager instanceof CameraManagerLegacy;
+  private CameraManager<?> createCameraManager () {
+    return cameraMode == MODE_ROUND_VIDEO ?
+      new CameraManagerRoundX(context, this) : new CameraManagerX(context, this);
   }
 
-  private boolean needLegacy () {
-    if ((forceLegacy))
-      return true;
-    int type = Settings.instance().getCameraType();
-    return type == Settings.CAMERA_TYPE_SYSTEM ? Settings.CAMERA_TYPE_DEFAULT == Settings.CAMERA_TYPE_LEGACY : type == Settings.CAMERA_TYPE_LEGACY;
-  }
-
-  @ChecksSdkIntAtLeast(api = Build.VERSION_CODES.LOLLIPOP)
-  private boolean needCameraX () {
-    return !needLegacy();
-  }
-
-  private void setForceLegacy (boolean forceLegacy) {
-    if (this.forceLegacy != forceLegacy) {
-      this.forceLegacy = forceLegacy;
-      checkLegacyMode();
-    }
-  }
-
-  private Throwable debugDestroy;
-
-  public void checkLegacyMode () {
-    if (contentView != null && isLegacy() != needLegacy()) {
-      if (manager != null) {
-        debugDestroy = Log.generateException();
-        contentView.removeView(this.manager.getView());
-        manager.destroy();
-        manager = null;
-      }
-      if (needCameraX()) {
-        manager = new CameraManagerX(context, this);
-      } else {
-        manager = new CameraManagerLegacy(context, this);
-      }
+  private void updateCameraMode () {
+    if (contentView != null &&
+      ((manager instanceof CameraManagerRoundX) != (cameraMode == MODE_ROUND_VIDEO) ||
+        managerUsesQrScanner != useQrScanner())) {
+      contentView.removeView(manager.getView());
+      manager.destroy();
+      manager = createCameraManager();
+      managerUsesQrScanner = useQrScanner();
       contentView.addView(manager.getView(), contentView.getChildCount() - 1);
+      if (__cameraOpen) {
+        manager.openCamera();
+      }
     }
   }
+
+  private boolean managerUsesQrScanner;
 
   public void takeCameraLayout (ViewGroup toGroup, int index) {
     getValue();
@@ -347,8 +322,6 @@ public class CameraController extends ViewController<Void> implements CameraDele
 
   private void ensureManager () {
     if (manager == null) {
-      if (debugDestroy != null)
-        throw new IllegalStateException(debugDestroy);
       throw new IllegalStateException();
     }
   }
@@ -358,9 +331,9 @@ public class CameraController extends ViewController<Void> implements CameraDele
     return manager;
   }
 
-  public @NonNull CameraManagerLegacy getLegacyManager () {
+  public @NonNull CameraManagerRoundX getRoundManager () {
     ensureManager();
-    return (CameraManagerLegacy) manager;
+    return (CameraManagerRoundX) manager;
   }
 
   @SuppressWarnings("SetTextI18n")
@@ -1586,24 +1559,6 @@ public class CameraController extends ViewController<Void> implements CameraDele
     if (qrCodeListener != null && !qrCodeData.isEmpty() && (qrCodeData.startsWith("tg://") || qrCodeData.startsWith(context.currentTdlib().tMeUrl())) && !qrCodeConfirmed) {
       savedQrCodeData = qrCodeData;
       rootLayout.setQrCorner(boundingBox, height, width, rotation, isLegacyZxing);
-    }
-  }
-
-  @Override
-  public int getCurrentCameraOrientation () {
-    if (manager instanceof CameraManagerLegacy) {
-      return ((CameraManagerLegacy) manager).getCurrentCameraRotation();
-    } else {
-      return 0; // CameraX impl won't call this anyway
-    }
-  }
-
-  @Override
-  public int getCurrentCameraSensorOrientation () {
-    if (manager instanceof CameraManagerLegacy) {
-      return ((CameraManagerLegacy) manager).getCurrentCameraSensorOrientation();
-    } else {
-      return 0; // CameraX impl won't call this anyway
     }
   }
 

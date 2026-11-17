@@ -10,6 +10,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+// @MadeByLLM("gpt-6", id = "camerax-only")
 package org.thunderdog.challegram.ui.camera;
 
 import android.content.Context;
@@ -32,7 +33,7 @@ public abstract class CameraManagerTexture extends CameraManager<CameraTextureVi
 
   protected abstract void onTextureAvailable (SurfaceTexture surfaceTexture, int width, int height);
   protected abstract void onTextureSizeChanged (SurfaceTexture surfaceTexture, int width, int height);
-  protected abstract void onTextureDestroyed (SurfaceTexture surfaceTexture);
+  protected abstract boolean onTextureDestroyed (SurfaceTexture surfaceTexture);
 
   @Override
   protected final CameraTextureView onCreateView () {
@@ -60,9 +61,8 @@ public abstract class CameraManagerTexture extends CameraManager<CameraTextureVi
 
   @Override
   public final boolean onSurfaceTextureDestroyed (SurfaceTexture surface) {
-    onTextureDestroyed(surface);
     this.surfaceTexture = null;
-    return true;
+    return onTextureDestroyed(surface);
   }
 
   @Override

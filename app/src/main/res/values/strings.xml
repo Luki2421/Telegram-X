@@ -4747,8 +4747,7 @@
   <string name="CameraUseSystem">Use system camera</string>
 
   <string name="CameraType">Camera Type</string>
-  <string name="CameraTypeLegacy">Legacy</string>
-  <string name="CameraTypeXBeta">CameraX (experimental)</string>
+  <string name="CameraTypeX">CameraX</string>
   <string name="CameraTypeSystem">System</string>
 
   <string name="CameraRatio">Aspect Ratio</string>

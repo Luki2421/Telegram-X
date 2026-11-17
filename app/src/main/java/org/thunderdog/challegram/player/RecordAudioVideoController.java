@@ -13,6 +13,7 @@
  * File created on 10/12/2017
  */
 // region @MadeByLLM("gpt-6", id = "android13-arm64")
+// @MadeByLLM("gpt-6", id = "camerax-only")
 package org.thunderdog.challegram.player;
 
 import android.graphics.Canvas;
@@ -1190,7 +1191,7 @@ public class RecordAudioVideoController implements
 
     if (recordingVideo && (closeMode == CLOSE_MODE_PREVIEW || closeMode == CLOSE_MODE_PREVIEW_SCHEDULE)) {
       if (ownedCamera != null) {
-        ownedCamera.getLegacyManager().setNoPreviewBlur(true);
+        ownedCamera.getRoundManager().setNoPreviewBlur(true);
       } else {
         Log.w(Log.TAG_ROUND, "ownedCamera.setNoPreviewBlur() failed: null");
       }
@@ -1480,7 +1481,7 @@ public class RecordAudioVideoController implements
         return;
       }
 
-      ownedCamera.getLegacyManager().setUseRoundRender(false);
+      ownedCamera.getRoundManager().releaseRoundRenderer();
 
       setRecordModeImpl(RECORD_MODE_NONE);
       resetRoundState();
@@ -1588,9 +1589,8 @@ public class RecordAudioVideoController implements
   private void setupCamera (boolean isOwned) {
     ownedCamera.getManager().setPreferFrontFacingCamera(!Settings.instance().startRoundWithRear() && isOwned);
     ownedCamera.getManager().setMaxResolution(isOwned ? (Settings.instance().needHqRoundVideos() ? MAX_HQ_ROUND_RESOLUTION : MAX_ROUND_RESOLUTION) : 0);
-    ownedCamera.getLegacyManager().setNoPreviewBlur(false);
-    ownedCamera.getLegacyManager().setUseRoundRender(isOwned);
-    ownedCamera.getLegacyManager().getView().setIgnoreAspectRatio(isOwned);
+    ownedCamera.getRoundManager().setNoPreviewBlur(false);
+    ownedCamera.getRoundManager().getView().setIgnoreAspectRatio(isOwned);
     ownedCamera.getCameraLayout().setDisallowRatioChanges(isOwned);
     ownedCamera.setUseFastInitialization(isOwned);
   }
@@ -1696,7 +1696,7 @@ public class RecordAudioVideoController implements
     if (this.recordingRoundVideo)
       throw new IllegalStateException();
     this.recordingRoundVideo = true;
-    ownedCamera.getLegacyManager().requestRoundVideoCapture(roundKey, this, roundOutputPath);
+    ownedCamera.getRoundManager().requestRoundVideoCapture(roundKey, this, roundOutputPath);
   }
 
   private void finishVideoRecording (int closeMode) {
@@ -1709,7 +1709,7 @@ public class RecordAudioVideoController implements
     if (ownedCamera == null) {
       throw new RuntimeException(releasedTrace);
     }
-    ownedCamera.getLegacyManager().finishOrCancelRoundVideoCapture(roundKey, needResult);
+    ownedCamera.getRoundManager().finishOrCancelRoundVideoCapture(roundKey, needResult);
     if (cleanupVideoPending) {
       cleanupVideoPending = false;
       cleanupVideoRecording();

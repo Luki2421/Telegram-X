@@ -13,6 +13,7 @@
  * File created on 14/01/2017
  */
 // region @MadeByLLM("gpt-6", id = "android13-arm64")
+// @MadeByLLM("gpt-6", id = "camerax-only")
 package org.thunderdog.challegram.ui;
 
 import android.app.TimePickerDialog;
@@ -198,14 +199,11 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
           {
             int type = Settings.instance().getCameraType();
             switch (type) {
-              case Settings.CAMERA_TYPE_LEGACY:
-                v.setData(R.string.CameraTypeLegacy);
-                break;
               case Settings.CAMERA_TYPE_SYSTEM:
                 v.setData(R.string.CameraTypeSystem);
                 break;
               case Settings.CAMERA_TYPE_X:
-                v.setData(R.string.CameraTypeXBeta);
+                v.setData(R.string.CameraTypeX);
                 break;
             }
           }
@@ -946,15 +944,26 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
       {
         int type = Settings.instance().getCameraType();
         showSettings(R.id.btn_cameraType, new ListItem[] {
-          new ListItem(ListItem.TYPE_RADIO_OPTION, R.id.btn_cameraTypeX, 0, R.string.CameraTypeXBeta, R.id.btn_cameraType, type == Settings.CAMERA_TYPE_X),
-          new ListItem(ListItem.TYPE_RADIO_OPTION, R.id.btn_cameraTypeLegacy, 0, R.string.CameraTypeLegacy, R.id.btn_cameraType, type == Settings.CAMERA_TYPE_LEGACY),
-          new ListItem(ListItem.TYPE_RADIO_OPTION, R.id.btn_cameraTypeSystem, 0, R.string.CameraTypeSystem, R.id.btn_cameraType, type == Settings.CAMERA_TYPE_SYSTEM),
+          new ListItem(
+            ListItem.TYPE_RADIO_OPTION,
+            R.id.btn_cameraTypeX,
+            0,
+            R.string.CameraTypeX,
+            R.id.btn_cameraType,
+            type == Settings.CAMERA_TYPE_X
+          ),
+          new ListItem(
+            ListItem.TYPE_RADIO_OPTION,
+            R.id.btn_cameraTypeSystem,
+            0,
+            R.string.CameraTypeSystem,
+            R.id.btn_cameraType,
+            type == Settings.CAMERA_TYPE_SYSTEM
+          )
         }, (id, result) -> {
           int cameraType = result.get(R.id.btn_cameraType);
           if (cameraType == R.id.btn_cameraTypeX) {
             cameraType = Settings.CAMERA_TYPE_X;
-          } else if (cameraType == R.id.btn_cameraTypeLegacy) {
-            cameraType = Settings.CAMERA_TYPE_LEGACY;
           } else if (cameraType == R.id.btn_cameraTypeSystem) {
             cameraType = Settings.CAMERA_TYPE_SYSTEM;
           } else {
@@ -962,9 +971,6 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
           }
           int prevCameraType = Settings.instance().getCameraType();
           Settings.instance().setCameraType(cameraType);
-          if (cameraType != Settings.CAMERA_TYPE_SYSTEM) {
-            context.checkCameraApi();
-          }
           if (prevCameraType != cameraType && (prevCameraType == Settings.CAMERA_TYPE_SYSTEM || cameraType == Settings.CAMERA_TYPE_SYSTEM)) {
             int index = adapter.indexOfViewById(R.id.btn_cameraType);
             if (index != -1) {

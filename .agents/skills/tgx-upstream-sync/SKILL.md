@@ -13,8 +13,9 @@ loading this skill does not authorize publication.
 
 ## Identify the request and base
 
-- Read `AGENTS.md`, `docs/ANDROID_13_ARM64.md`, `docs/CODE_STYLE.md`, and, when applicable,
-  `docs/PULL_REQUEST_TEMPLATE.md`. Migration documentation includes historical checks:
+- Read `AGENTS.md`, `docs/ANDROID_13_ARM64.md`, `docs/CAMERAX_MIGRATION.md`,
+  `docs/CODE_STYLE.md`, and, when applicable, `docs/PULL_REQUEST_TEMPLATE.md`.
+  Migration documentation includes historical checks:
   consult the current checkout and `AGENTS.md` to determine which checks still exist.
 - Inspect remotes, branch, worktrees, index, local changes, ongoing Git operations, and
   submodule state. Record the initial base SHA.
@@ -64,6 +65,10 @@ from other PRs. Inspect the history of affected areas to understand their intent
   for APIs introduced after API 33.
 - Preserve the removal of multidex, Dalvik workarounds, ReLinker, the legacy transcoder,
   and old storage permissions. Host architecture does not determine the Android target.
+- Preserve the CameraX-only internal camera contract in `docs/CAMERAX_MIGRATION.md`,
+  including QR and round messages, preference migration, and the system-camera alternative.
+  Port upstream Camera1 changes to the CameraX managers instead of restoring the removed
+  backend. Preserve round rendering, audio, camera switching, and progressive output.
 - Resolve conflicts according to the intent of both changes. Do not apply `ours`, `theirs`,
   or strategies that indiscriminately discard one side. Record adaptations and deliberate
   omissions with their rationale.

@@ -25,6 +25,13 @@ Keep this file focused on durable repository rules; put task procedures in proje
 - Read [migration notes](docs/ANDROID_13_ARM64.md) before changing platform support,
   native build configuration, or submodule pins.
 
+## Camera contract
+
+- CameraX is the only internal camera backend, including QR and round video messages.
+  Preserve the system-camera alternative and migration of stored camera preferences.
+- Read [camera migration notes](docs/CAMERAX_MIGRATION.md) before changing camera backends
+  or integrating upstream camera changes. Do not reintroduce the removed Camera1 backend.
+
 ## Repository map
 
 - `app/src/main/java`, `app/src/main/kotlin`: application code.

@@ -13,6 +13,7 @@
  * File created on 23/04/2015 at 15:23
  */
 // region @MadeByLLM("gpt-6", id = "android13-arm64")
+// @MadeByLLM("gpt-6", id = "camerax-only")
 package org.thunderdog.challegram;
 
 import android.Manifest;
@@ -3334,12 +3335,6 @@ public abstract class BaseActivity extends FragmentActivity implements View.OnTo
       return c.getChatId();
     }
     return 0;
-  }
-
-  public void checkCameraApi () {
-    if (camera != null) {
-      camera.checkLegacyMode();
-    }
   }
 
   private void initializeCamera (ViewController.CameraOpenOptions options) {
