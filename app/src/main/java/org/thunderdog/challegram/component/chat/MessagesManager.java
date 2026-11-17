@@ -26,6 +26,7 @@ import androidx.annotation.UiThread;
 import androidx.annotation.WorkerThread;
 import androidx.collection.LongSparseArray;
 import androidx.core.os.CancellationSignal;
+import androidx.core.view.OneShotPreDrawListener;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -552,6 +553,7 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
   }
 
   public void destroy (ViewController<?> context) {
+    pendingNavigationDirection = 0;
     resetScroll();
     returnToMessageIds = null;
     highlightMode = 0;
@@ -905,6 +907,8 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
   }
 
   public void resetByMessage (MessageId highlightMessageId, int highlightMode) {
+    stopScroll();
+    pendingNavigationDirection = 0;
     clearHeaderMessage();
     this.highlightMessageId = highlightMessageId;
     this.highlightMode = highlightMode;
@@ -964,7 +968,7 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
   public void scrollToStart (boolean force) {
     if (inSpecialMode()) {
       stopScroll();
-      scrollToBottom(false);
+      scrollToBottom(true);
       return;
     }
     if (hasReturnMessage() && !force) {
@@ -982,6 +986,7 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
     stopScroll();
     if (loader.canLoadBottom()) {
       loadFromStart();
+      pendingNavigationDirection = 1;
     } else {
       scrollToBottom(true);
     }
@@ -1044,33 +1049,19 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
     return totalScrollBottom;
   }
 
+  @me.vkryl.annotation.MadeByLLM(value = "gpt-6-astra", id = "animated-chat-navigation")
   private void scrollToBottom (boolean smooth) {
-    stopScroll();
-    if (!Config.SMOOTH_SCROLL_TO_BOTTOM_ENABLED || !smooth) {
-      if (adapter.getBottomMessage() != null && adapter.getBottomMessage().isSponsoredMessage()) {
-        controller.setScrollToBottomVisible(false, false, false);
-        if (controller.canWriteMessages()) {
-          manager.scrollToPosition(1);
-        } else {
-          scrollToPositionWithOffsetImpl(1, getExtraScrollSpacing());
-        }
-      } else {
-        scrollToPositionWithOffsetImpl(0, 0);
-      }
-    } else {
-      boolean needScrollBy = false;
-      if (adapter.getMessage(0) != null) {
-        TGMessage msg = adapter.getMessage(0);
-        msg.buildLayout(getRecyclerWidth());
-        needScrollBy = msg.getHeight() > getRecyclerHeight(); // FIXME this is needed, because smoothScrollToPosition does not take to the bottom of the last message.
-      }
-      if (needScrollBy) {
-        // scrollToPositionWithOffset(0, 0, true);
-        scrollToPositionWithOffsetImpl(0, 0);
-      } else {
-        controller.getMessagesView().smoothScrollToPosition(0);
+    int index = 0;
+    int offset = 0;
+    TGMessage bottomMessage = adapter.getBottomMessage();
+    if (bottomMessage != null && bottomMessage.isSponsoredMessage()) {
+      controller.setScrollToBottomVisible(false, false, false);
+      index = 1;
+      if (!controller.canWriteMessages()) {
+        offset = getExtraScrollSpacing();
       }
     }
+    scrollToPositionWithOffset(index, offset, smooth);
   }
 
   public MessagesController controller () {
@@ -1210,6 +1201,8 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
   // Private Loaders
 
   private void loadFromStart (MessageId fromId, TGMessage startMessage) {
+    stopScroll();
+    pendingNavigationDirection = 0;
     adapter.reset(startMessage);
     scrollToPositionWithOffsetImpl(0, 0);
     loader.loadFromStart(fromId);
@@ -1349,19 +1342,40 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
           adapter.addMessages(items, true);
         }
         checkTopEndReached(items, willRepeat, canLoadTop);
+        // region @MadeByLLM("gpt-6-astra", id = "animated-chat-navigation")
+        // Cached messages can already contain the destination; the remainder is appended later.
+        loadedNavigationDirection = !items.isEmpty() ? pendingNavigationDirection : 0;
+        boolean animateNavigation = loadedNavigationDirection != 0;
+        if (animateNavigation || !willRepeat) {
+          pendingNavigationDirection = 0;
+        }
+        // endregion
         if (scrollMessage == null) {
           if (scrollMessageId != null && scrollMessageId.isHistoryStart() && !items.isEmpty()) {
             scrollToHistoryStart();
           } else if (scrollMessageId != null && isHeaderMessage(scrollMessageId) && !adapter.isEmpty()) {
-            scrollToMessage(adapter.getItemCount() - 1, adapter.getTopMessage(), highlightMode == HIGHLIGHT_MODE_NONE ? HIGHLIGHT_MODE_START : highlightMode, false, false);
+            scrollToMessage(
+              adapter.getItemCount() - 1,
+              adapter.getTopMessage(),
+              highlightMode == HIGHLIGHT_MODE_NONE ? HIGHLIGHT_MODE_START : highlightMode,
+              animateNavigation,
+              false
+            );
           } else if (scrollPosition == 0) {
-            scrollToPositionWithOffsetImpl(0, 0);
+            scrollToPositionWithOffset(0, 0, animateNavigation);
           } else {
             manager.scrollToPosition(scrollPosition);
           }
         } else {
-          scrollToMessage(scrollPosition, scrollMessage, highlightMode == HIGHLIGHT_MODE_NONE ? HIGHLIGHT_MODE_START : highlightMode, false, false);
+          scrollToMessage(
+            scrollPosition,
+            scrollMessage,
+            highlightMode == HIGHLIGHT_MODE_NONE ? HIGHLIGHT_MODE_START : highlightMode,
+            animateNavigation,
+            false
+          );
         }
+        loadedNavigationDirection = 0;
         if (!willRepeat) {
           onChatAwaitFinish();
         }
@@ -3156,7 +3170,17 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
     return controller.makeGuessAboutWidth();
   }
 
+  // region @MadeByLLM("gpt-6-astra", id = "animated-chat-navigation")
+  private int pendingNavigationDirection;
+  private int loadedNavigationDirection;
+  private OneShotPreDrawListener navigationScroll;
+  // endregion
+
   private void stopScroll () {
+    if (navigationScroll != null) {
+      navigationScroll.removeListener();
+      navigationScroll = null;
+    }
     RecyclerView recyclerView = controller.getMessagesView();
     if (recyclerView != null) {
       recyclerView.stopScroll();
@@ -3216,16 +3240,28 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
   private void scrollToPositionWithOffset (final int index, final int offset, boolean smooth, boolean useRoundVideoScrollFix) {
     stopScroll();
 
-    if (smooth) {
-      int scrollBy = calculateScrollBy(index, offset, useRoundVideoScrollFix);
-      if (Math.abs(scrollBy) < controller.getMessagesView().getMeasuredHeight() * (useRoundVideoScrollFix ? 1.5f : 1f)) {
-        controller.getMessagesView().smoothScrollBy(0, scrollBy);
+    // region @MadeByLLM("gpt-6-astra", id = "animated-chat-navigation")
+    RecyclerView view = controller.getMessagesView();
+    if (smooth && view.getHeight() > 0) {
+      int scrollBy = loadedNavigationDirection != 0 ?
+        loadedNavigationDirection * view.getHeight() :
+        calculateScrollBy(index, offset, useRoundVideoScrollFix);
+      if (Math.abs((long) scrollBy) < view.getHeight() *
+        (useRoundVideoScrollFix ? 1.5f : 1f)) {
+        view.smoothScrollBy(0, scrollBy);
       } else {
-        scrollToPositionWithOffsetImpl(index, offset);
+        // Keep long jumps bounded while using the same RecyclerView animation as replies.
+        int approach = Integer.signum(scrollBy) * view.getHeight() / 2;
+        scrollToPositionWithOffsetImpl(index, offset - approach);
+        navigationScroll = OneShotPreDrawListener.add(view, () -> {
+          navigationScroll = null;
+          view.smoothScrollBy(0, calculateScrollBy(index, offset, useRoundVideoScrollFix));
+        });
       }
     } else {
       scrollToPositionWithOffsetImpl(index, offset);
     }
+    // endregion
   }
 
   private void scrollToHistoryStart () {
@@ -3270,7 +3306,7 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
 
   private void scrollToMessage (int index, TGMessage scrollMessage, int highlightMode, boolean smooth, boolean blocking) {
     if (highlightMode == HIGHLIGHT_MODE_START) {
-      scrollToPositionWithOffset(index, 0, false);
+      scrollToPositionWithOffset(index, 0, smooth);
       return;
     }
     if (highlightMode == HIGHLIGHT_MODE_POSITION_RESTORE) {
@@ -3356,6 +3392,7 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
   }
 
   public void highlightMessage (MessageId messageId, int highlightMode, long[] returnToMessageIds, boolean allowSmooth) {
+    pendingNavigationDirection = 0;
     if (isEventLog()) {
       return;
     }
@@ -3369,7 +3406,11 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
     }
     int index = adapter.indexOfMessageContainer(messageId);
     if (index == -1) {
+      TGMessage visibleMessage = findTopMessage();
+      int direction = visibleMessage != null && messageId.getMessageId() < visibleMessage.getId() ?
+        -1 : 1;
       resetByMessage(messageId, highlightMode);
+      pendingNavigationDirection = allowSmooth ? direction : 0;
     } else {
       if ((highlightMode == HIGHLIGHT_MODE_UNREAD_NEXT || highlightMode == HIGHLIGHT_MODE_NORMAL_NEXT) && index > 0) {
         index--;

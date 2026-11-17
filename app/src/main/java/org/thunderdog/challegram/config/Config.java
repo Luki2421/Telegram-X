@@ -190,8 +190,6 @@ public class Config {
 
   public static final boolean USE_TEXT_ADVANCE = true;
 
-  public static final boolean SMOOTH_SCROLL_TO_BOTTOM_ENABLED = false;
-
   public static final boolean ALLOW_DEBUG_DC = BuildConfig.DEBUG || BuildConfig.EXPERIMENTAL;
 
   public static final boolean DEBUG_DISABLE_DOWNLOAD = false; // BuildConfig.DEBUG;
