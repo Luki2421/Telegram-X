@@ -89,6 +89,7 @@ public final class ForumTopicsController
   private ForumTopicStore.Snapshot snapshot;
   private TopicAdapter adapter;
   private boolean rowsRefreshPending;
+  private boolean selectionRefreshPending;
   private ViewTreeObserver rowsRefreshObserver;
   private final ViewTreeObserver.OnPreDrawListener rowsRefreshListener = () -> {
     applyRowsRefresh();
@@ -325,8 +326,9 @@ public final class ForumTopicsController
     }
   }
 
+  @me.vkryl.annotation.MadeByLLM(value = "GPT-6", id = "forum-polish-audit")
   private void setQuery (String value) {
-    value = value.trim();
+    value = ForumTopicStore.normalizeQuery(value);
     if (query.equals(value)) {
       return;
     }
@@ -772,25 +774,21 @@ public final class ForumTopicsController
     updateCreateButton();
   }
 
+  @me.vkryl.annotation.MadeByLLM(value = "GPT-6", id = "forum-polish-audit")
   private void updateSelectionRows () {
-    RecyclerView recycler = getRecyclerView();
-    if (recycler == null) {
-      return;
-    }
-    // Update only attached views; offscreen rows receive the current identity state at bind time.
-    for (int i = 0; i < recycler.getChildCount(); i++) {
-      View view = recycler.getChildAt(i);
-      if (view instanceof ForumTopicView) {
-        ForumTopicView row = (ForumTopicView) view;
-        if (row.getTopic() != null) {
-          row.setSelection(
-            selection != null &&
-              !selection.isEmpty(),
-            selection != null &&
-              selection.contains(row.getTopic().info.forumTopicId),
-            true
-          );
-        }
+    selectionRefreshPending = true;
+    applyRowsRefresh();
+  }
+
+  private void bindVisibleSelection (View view) {
+    if (view instanceof ForumTopicView) {
+      ForumTopicView row = (ForumTopicView) view;
+      if (row.getTopic() != null) {
+        row.setSelection(
+          selection != null && !selection.isEmpty(),
+          selection != null && selection.contains(row.getTopic().info.forumTopicId),
+          true
+        );
       }
     }
   }
@@ -859,9 +857,10 @@ public final class ForumTopicsController
     updateSelectionHeader();
   }
 
+  @me.vkryl.annotation.MadeByLLM(value = "GPT-6", id = "forum-polish-audit")
   private void applyRowsRefresh () {
     RecyclerView recycler = getRecyclerView();
-    if (isDestroyed() || !rowsRefreshPending || adapter == null ||
+    if (isDestroyed() || (!rowsRefreshPending && !selectionRefreshPending) || adapter == null ||
       recycler == null || recycler.getWindowToken() == null) {
       return;
     }
@@ -875,8 +874,11 @@ public final class ForumTopicsController
       return;
     }
     clearRowsRefreshListener();
+    boolean refreshContent = rowsRefreshPending;
     rowsRefreshPending = false;
-    Views.updateRows(recycler, 0, adapter.getItemCount(), this::bindVisibleRow);
+    selectionRefreshPending = false;
+    Views.updateRows(recycler, 0, adapter.getItemCount(),
+      refreshContent ? this::bindVisibleRow : this::bindVisibleSelection);
   }
 
   private void clearRowsRefreshListener () {
@@ -966,6 +968,7 @@ public final class ForumTopicsController
 
   @Override public void destroy () {
     rowsRefreshPending = false;
+    selectionRefreshPending = false;
     clearRowsRefreshListener();
     closeSession();
     for (ForumTopicStore.TopicSubscription observer : selectedObservers.values()) {
@@ -1030,7 +1033,7 @@ public final class ForumTopicsController
       return false;
     }
     setArguments(new Arguments(chatId, TD.chatListFromKey(in.getString(prefix+"forum_list"))));
-    query = in.getString(prefix+"forum_query", "");
+    query = ForumTopicStore.normalizeQuery(in.getString(prefix+"forum_query", ""));
     restoreSearch = !query.isEmpty();
     restorePosition = in.getInt(prefix+"base_scroll_position", -1);
     restoreOffset = in.getInt(prefix+"base_scroll_offset", 0);
@@ -1188,6 +1191,8 @@ public final class ForumTopicsController
         footer.message.setText(text != 0 ? Lang.getString(text) : "");
         footer.message.setVisibility(text != 0 ? View.VISIBLE : View.GONE);
         footer.setEnabled(failed);
+        footer.setClickable(failed);
+        footer.setFocusable(failed);
         RecyclerView.LayoutParams params = (RecyclerView.LayoutParams) footer.getLayoutParams();
         int height = empty ? ViewGroup.LayoutParams.MATCH_PARENT : Screen.dp(144);
         if (params.height != height) {
