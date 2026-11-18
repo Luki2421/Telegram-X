@@ -3624,6 +3624,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
   private long linkedChatId;
 
   public void setArguments (Arguments args) {
+    cancelJumpToDate();
     // region @MadeByLLM("gpt-6-astra", id = "forum-topics", ref = "PR #1095")
     saveDraft();
     if (forumTopicContext != null && contentView != null) {
@@ -13008,7 +13009,10 @@ public class MessagesController extends ViewController<MessagesController.Argume
   private TdApi.Function<?> jumpToDateRequest;
 
   private void cancelJumpToDate () {
-    jumpToDateRequest = null;
+    if (jumpToDateRequest != null) {
+      jumpToDateRequest = null;
+      setSearchInProgress(false, true);
+    }
   }
 
   private void jumpToDate () {
@@ -13135,45 +13139,59 @@ public class MessagesController extends ViewController<MessagesController.Argume
     jumpToDate((int) (c.getTimeInMillis() / 1000l));
   }
 
+  @me.vkryl.annotation.MadeByLLM(value = "gpt-6.2-sol", id = "01a1ec12-c390-7963-b7a4-852f7fb39bed")
   public void jumpToDate (int date) {
-    final boolean inSearchMode = canSetSearchFilteredMode();
+    final long chatId = getChatId();
     if (date == 0) {
-      MessageId messageId = new MessageId(getChatId(), MessageId.MIN_VALID_ID);
-      jumpToDateRequest = null;
-      setSearchInProgress(false, true);
-      if (inSearchMode) {
-        manager.searchMoveToMessage(messageId);
-        return;
-      }
-      manager.highlightMessage(messageId, MessagesManager.HIGHLIGHT_MODE_NORMAL, null, true);
+      finishJumpToDate(chatId, null);
       return;
     }
-    final TdApi.GetChatMessageByDate request = new TdApi.GetChatMessageByDate(getChatId(), 0);
+    final TdApi.MessageTopic topicId = getMessageTopicId();
+    final TdApi.GetChatMessageByDate request = new TdApi.GetChatMessageByDate(chatId, date);
     jumpToDateRequest = request;
-    request.date = date;
     setSearchInProgress(true, true);
-    tdlib.client().send(request, object -> {
-      final MessageId messageId;
-      final TdApi.Message message;
-      if (object.getConstructor() == TdApi.Message.CONSTRUCTOR) {
-        message = (TdApi.Message) object;
-        messageId = new MessageId(message.chatId, message.id);
-      } else {
-        message = null;
-        messageId = new MessageId(getChatId(), MessageId.MIN_VALID_ID);
+    tdlib.send(request, (message, error) -> tdlib.ui().post(() -> {
+      if (jumpToDateRequest != request) {
+        return;
       }
-      tdlib.ui().post(() -> {
-        if (jumpToDateRequest == request) {
-          jumpToDateRequest = null;
-          setSearchInProgress(false, true);
-          if (inSearchMode) {
-            manager.searchMoveToMessage(messageId);
-            return;
-          }
-          manager.highlightMessage(messageId, messageId.isHistoryStart() ? MessagesManager.HIGHLIGHT_MODE_NORMAL : MessagesManager.HIGHLIGHT_MODE_NORMAL_NEXT, null, true);
-        }
-      });
-    });
+      if (!ForumHistory.isForum(topicId)) {
+        finishJumpToDate(chatId, message);
+      } else if (error != null && error.code != 404) {
+        cancelJumpToDate();
+        UI.showError(error);
+      } else if (message == null || ForumHistory.matches(message, chatId, topicId, false)) {
+        finishJumpToDate(chatId, message);
+      } else {
+        // The chat-wide result provides an ID boundary for the topic history lookup.
+        tdlib.send(ForumHistory.request(chatId, topicId, message.id, 0, 1, false),
+          (history, historyError) -> tdlib.ui().post(() -> {
+            if (jumpToDateRequest != request) {
+              return;
+            }
+            if (historyError != null) {
+              cancelJumpToDate();
+              UI.showError(historyError);
+              return;
+            }
+            TdApi.Message[] messages = ForumHistory.filter(history.messages, chatId, topicId, false);
+            finishJumpToDate(chatId, messages.length == 0 ? null : messages[0]);
+          }));
+      }
+    }));
+  }
+
+  @me.vkryl.annotation.MadeByLLM(value = "gpt-6.2-sol", id = "01a1ec12-c390-7963-b7a4-852f7fb39bed")
+  private void finishJumpToDate (long chatId, @Nullable TdApi.Message message) {
+    jumpToDateRequest = null;
+    setSearchInProgress(false, true);
+    MessageId messageId = new MessageId(chatId, message == null ? MessageId.MIN_VALID_ID : message.id);
+    if (canSetSearchFilteredMode()) {
+      manager.searchMoveToMessage(messageId);
+    } else {
+      int mode = messageId.isHistoryStart() ? MessagesManager.HIGHLIGHT_MODE_NORMAL :
+        MessagesManager.HIGHLIGHT_MODE_NORMAL_NEXT;
+      manager.highlightMessage(messageId, mode, null, true);
+    }
   }
 
   private void initSearchControls () {
@@ -13473,6 +13491,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
 
   @Override
   protected void onLeaveSearchMode () {
+    cancelJumpToDate();
     if (searchFromUserMessageId != null) {
       manager.setHighlightMessageId(searchFromUserMessageId, MessagesManager.HIGHLIGHT_MODE_WITHOUT_HIGHLIGHT);
     }
