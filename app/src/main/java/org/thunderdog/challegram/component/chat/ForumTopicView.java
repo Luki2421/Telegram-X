@@ -19,6 +19,8 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.drawable.Drawable;
 import android.text.TextPaint;
+import android.text.Layout;
+import android.text.StaticLayout;
 import android.text.TextUtils;
 import android.view.View;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -85,8 +87,17 @@ public final class ForumTopicView extends View {
   private boolean wrapStates;
 
   public ForumTopicView (Context context, Tdlib tdlib) {
+    this(context, tdlib, false);
+  }
+
+  private final boolean pickerTile;
+  private StaticLayout pickerLabel;
+
+  @me.vkryl.annotation.MadeByLLM(value = "gpt-6.2-astra", id = "floating-forum-picker")
+  public ForumTopicView (Context context, Tdlib tdlib, boolean pickerTile) {
     super(context);
     this.tdlib = tdlib;
+    this.pickerTile = pickerTile;
     pin = drawable(R.drawable.deproko_baseline_pin_16);
     closed = drawable(R.drawable.baseline_lock_16);
     hidden = drawable(R.drawable.baseline_eye_off_24);
@@ -160,6 +171,19 @@ public final class ForumTopicView extends View {
 
   @Override protected void onMeasure (int widthMeasureSpec, int heightMeasureSpec) {
     int width = MeasureSpec.getSize(widthMeasureSpec);
+    if (pickerTile) {
+      setPaint(14, Theme.textAccentColor(), false);
+      String label = topic == null ? "" : topic.info.name;
+      pickerLabel = StaticLayout.Builder.obtain(label, 0, label.length(), paint,
+        Math.max(1, width - Screen.dp(8)))
+        .setAlignment(Layout.Alignment.ALIGN_CENTER)
+        .setIncludePad(false)
+        .setMaxLines(2)
+        .setEllipsize(TextUtils.TruncateAt.END)
+        .build();
+      setMeasuredDimension(width, Screen.dp(68) + pickerLabel.getHeight());
+      return;
+    }
     setPaint(11, Theme.badgeTextColor(), true);
     counterWidth = 0;
     for (String label : counters) {
@@ -226,6 +250,13 @@ public final class ForumTopicView extends View {
     iconInitial = topic.info.isGeneral ||
       name.isEmpty() ? "#" : name.substring(0, name.offsetByCodePoints(0, 1));
     receiver.setAnimationDisabled(Settings.instance().needReduceMotion());
+    updateTopicEmoji(topic);
+    if (pickerTile) {
+      setContentDescription(topic.info.name);
+      requestLayout();
+      invalidate();
+      return;
+    }
     TdlibSettingsManager.LocalForumDraft local =
       tdlib.settings().getLocalForumDraft(topic.info.chatId, topic.info.forumTopicId);
     TdApi.DraftMessage draft = local != null ? local.draft : topic.draftMessage;
@@ -320,9 +351,30 @@ public final class ForumTopicView extends View {
     if (topic.unreadPollVoteCount > 0) {
       counters.add("✓" + Lang.badgeCounter(topic.unreadPollVoteCount));
     }
+    setContentDescription(
+      Lang.getString(
+        R.string.ForumTopicAccessibility,
+        topic.info.name,
+        time,
+        TextUtils.join(Lang.getConcatSeparator(), status),
+        preview,
+        Lang.getString(
+          R.string.ForumUnreadCounts,
+          topic.unreadCount,
+          topic.unreadMentionCount,
+          topic.unreadReactionCount,
+          topic.unreadPollVoteCount
+        )
+      )
+    );
+    requestLayout();
+    invalidate();
+  }
+
+  private void updateTopicEmoji (TdApi.ForumTopic topic) {
     long nextEmoji = !topic.info.isGeneral &&
       topic.info.icon != null ? topic.info.icon.customEmojiId : 0;
-    float size = scaled(20);
+    float size = pickerTile ? Screen.dp(48) : scaled(20);
     if (emojiId != nextEmoji || emojiSize != size) {
       clearEmoji();
       emojiId = nextEmoji;
@@ -346,7 +398,7 @@ public final class ForumTopicView extends View {
             null,
             (int) size * 2,
             Paints.robotoStyleProvider(
-              20 *
+              (pickerTile ? 48 : 20) *
                 Math.max(1f, getResources().getConfiguration().fontScale)
             ),
             TextColorSets.WHITE,
@@ -362,24 +414,6 @@ public final class ForumTopicView extends View {
         customEmoji.requestMedia(receiver);
       }
     }
-    setContentDescription(
-      Lang.getString(
-        R.string.ForumTopicAccessibility,
-        topic.info.name,
-        time,
-        TextUtils.join(Lang.getConcatSeparator(), status),
-        preview,
-        Lang.getString(
-          R.string.ForumUnreadCounts,
-          topic.unreadCount,
-          topic.unreadMentionCount,
-          topic.unreadReactionCount,
-          topic.unreadPollVoteCount
-        )
-      )
-    );
-    requestLayout();
-    invalidate();
   }
 
   private void setPaint (float size, int color, boolean medium) {
@@ -433,7 +467,7 @@ public final class ForumTopicView extends View {
   }
 
   private void topicIcon (Canvas c, float start, float cy, boolean rtl) {
-    float size = scaled(20), cx = x(start + size / 2, rtl);
+    float size = emojiSize, cx = x(start + size / 2, rtl);
     if (customEmoji != null) {
       int save = c.save();
       c.translate(cx - size / 2, cy - size / 2);
@@ -453,7 +487,7 @@ public final class ForumTopicView extends View {
       path.lineTo(cx, cy+r-size*.15f);
       path.close();
       c.drawPath(path, paint);
-      setPaint(13, 0xffffffff, true);
+      setPaint(pickerTile ? 25 : 13, 0xffffffff, true);
       paint.setTextAlign(Paint.Align.CENTER);
       c.drawText(iconInitial, cx, cy-(paint.ascent()+paint.descent())/2, paint);
     }
@@ -462,6 +496,18 @@ public final class ForumTopicView extends View {
   @Override protected void onDraw (Canvas c) {
     super.onDraw(c);
     if (topic == null) {
+      return;
+    }
+    if (pickerTile) {
+      float center = getWidth() / 2f;
+      topicIcon(c, center - emojiSize / 2, Screen.dp(32), false);
+      setPaint(14, Theme.textAccentColor(), false);
+      if (pickerLabel != null) {
+        int save = c.save();
+        c.translate(center - pickerLabel.getWidth() / 2f, Screen.dp(62));
+        pickerLabel.draw(c);
+        c.restoreToCount(save);
+      }
       return;
     }
     boolean rtl = Lang.rtl();

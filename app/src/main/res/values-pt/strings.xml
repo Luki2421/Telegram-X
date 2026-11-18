@@ -145,6 +145,7 @@
   <string name="ForumGeneral">Geral</string>
   <string name="ForumPinned">Fixado</string>
   <string name="ForumHidden">Oculto</string>
+  <string name="ForumSelectTopic">Selecione um tópico</string>
   <string name="ForumSearchTopics">Buscar tópicos</string>
   <string name="ForumTopicsLoading">Carregando tópicos…</string>
   <string name="ForumTopicsEmpty">Nenhum tópico encontrado</string>

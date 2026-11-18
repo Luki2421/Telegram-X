@@ -62,6 +62,7 @@ import org.thunderdog.challegram.component.sticker.TGStickerObj;
 import org.thunderdog.challegram.config.Config;
 import org.thunderdog.challegram.core.Background;
 import org.thunderdog.challegram.core.Lang;
+import org.thunderdog.challegram.data.ForumTopicContext;
 import org.thunderdog.challegram.data.InlineResult;
 import org.thunderdog.challegram.data.TD;
 import org.thunderdog.challegram.data.TGFoundChat;
@@ -80,10 +81,12 @@ import org.thunderdog.challegram.support.ViewSupport;
 import org.thunderdog.challegram.telegram.ChatListListener;
 import org.thunderdog.challegram.telegram.RightId;
 import org.thunderdog.challegram.telegram.TGLegacyManager;
+import org.thunderdog.challegram.telegram.ForumTopicStore;
 import org.thunderdog.challegram.telegram.Tdlib;
 import org.thunderdog.challegram.telegram.TdlibChatList;
 import org.thunderdog.challegram.telegram.TdlibChatListSlice;
 import org.thunderdog.challegram.telegram.TdlibFilesManager;
+import org.thunderdog.challegram.telegram.TdlibUi;
 import org.thunderdog.challegram.theme.ColorId;
 import org.thunderdog.challegram.theme.ColorState;
 import org.thunderdog.challegram.theme.Theme;
@@ -117,6 +120,7 @@ import org.thunderdog.challegram.widget.VerticalChatView;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -145,6 +149,7 @@ import tgx.td.ChatId;
 import tgx.td.ChatPosition;
 import tgx.td.Td;
 
+@me.vkryl.annotation.MadeByLLM(value = "gpt-6.2-sol", id = "forward-forum-topics")
 public class ShareController extends TelegramViewController<ShareController.Args> implements
   FactorAnimator.Target, Runnable, PopupLayout.PopupHeightProvider,
   View.OnClickListener, Menu, PopupLayout.TouchSectionProvider,
@@ -430,6 +435,15 @@ public class ShareController extends TelegramViewController<ShareController.Args
 
   @Override
   public boolean performOnBackPressed (boolean fromTop, boolean commit) {
+    if (topicPicker != null) {
+      if (topicPicker.closeSearchModeByBackPress(fromTop, commit)) {
+        return true;
+      }
+      if (commit) {
+        closeTopicPicker(true);
+      }
+      return true;
+    }
     if (inSearchMode()) {
       if (commit) {
         closeSearchMode(null);
@@ -1735,7 +1749,7 @@ public class ShareController extends TelegramViewController<ShareController.Args
       }
     };
 
-    if (!isChecked(chatId)) {
+    if (!isChecked(chatId) || isForwardForum(chatId)) {
       if (processSingleTap(chat))
         return true;
       if (!toggleChecked(view, chat, after))
@@ -1747,15 +1761,7 @@ public class ShareController extends TelegramViewController<ShareController.Args
   }
 
   private void onFoundChatClickAfter (TGFoundChat chat) {
-    int i = adapter.indexOfViewByLongId(chat.getAnyId());
-    if (i != -1) {
-      View itemView = recyclerView.getLayoutManager().findViewByPosition(i);
-      if (itemView != null) {
-        ((VerticalChatView) itemView).setIsChecked(true, false);
-      } else {
-        adapter.notifyItemChanged(i);
-      }
-    }
+    updateGridChatChecked(chat.getAnyId(), true);
     TdApi.Chat selectedChat = chat.getChat();
     if (selectedChat != null) {
       Runnable after = () -> runOnUiThreadOptional(() -> {
@@ -1777,6 +1783,27 @@ public class ShareController extends TelegramViewController<ShareController.Args
       }
       if (after != null) {
         after.run();
+      }
+    }
+  }
+
+  private void updateGridChatChecked (long chatId, boolean checked) {
+    int position = adapter.indexOfViewByLongId(chatId);
+    if (position != -1) {
+      View row = recyclerView.getLayoutManager().findViewByPosition(position);
+      if (row != null) {
+        ((VerticalChatView) row).setIsChecked(checked, true);
+      } else {
+        adapter.notifyItemChanged(position);
+      }
+    }
+  }
+
+  private void updateFoundChatChecked (View view, long chatId, boolean checked) {
+    if (isForwardForum(chatId)) {
+      updateGridChatChecked(chatId, checked);
+      if (view instanceof VerticalChatView && ((VerticalChatView) view).getChatId() == chatId) {
+        ((VerticalChatView) view).setIsChecked(checked, true);
       }
     }
   }
@@ -1986,6 +2013,136 @@ public class ShareController extends TelegramViewController<ShareController.Args
     return false;
   }
 
+  private final LongSparseArray<TdApi.ForumTopicInfo> selectedForumTopics = new LongSparseArray<>();
+  private ForumTopicsController topicPicker;
+  private FrameLayout topicPickerView;
+  private int recipientSearchVisibility;
+  private int recipientGridVisibility;
+  private final ArrayDeque<Runnable> pendingRecipientSelections = new ArrayDeque<>();
+
+  private boolean isForwardForum (long chatId) {
+    return mode == MODE_MESSAGES && tdlib.isForum(chatId);
+  }
+
+  private boolean canForwardToTopic (TdApi.ForumTopic topic) {
+    long chatId = topic.info.chatId;
+    return tdlib.isForum(chatId) && !topic.info.isHidden &&
+      ForumTopicContext.canSend(topic, tdlib.chatStatus(chatId), true);
+  }
+
+  private void openTopicPicker (View anchor, TGFoundChat chat, @Nullable RunnableBool after) {
+    if (topicPicker != null || isDestroyed() || isSent || popupLayout.isWindowHidden()) {
+      return;
+    }
+    topicValidation = null;
+    hideSoftwareKeyboard();
+    hideFolderSelector();
+
+    long chatId = chat.getAnyId();
+    ForumTopicsController picker = new ForumTopicsController(context(), tdlib);
+    picker.setTopicPicker(topic -> {
+      if (topic.info.chatId != chatId || !canForwardToTopic(topic)) {
+        UI.showToast(R.string.ForumTopicUnavailable, Toast.LENGTH_SHORT);
+        return;
+      }
+      if (showErrorMessage(null, chatId, true)) {
+        return;
+      }
+      closeTopicPicker(true);
+      selectedForumTopics.put(chatId, topic.info);
+      setChatChecked(chat, true);
+      updateFoundChatChecked(anchor, chatId, true);
+      if (after != null) {
+        after.runWithBool(true);
+      }
+    });
+    picker.setArguments(new ForumTopicsController.Arguments(chatId, chat.getList()));
+    topicPicker = picker;
+
+    HeaderView pickerHeader = new HeaderView(context());
+    picker.attachHeaderViewWithoutNavigation(pickerHeader);
+    pickerHeader.initWithSingleController(picker, false);
+
+    topicPickerView = new FrameLayoutFix(context());
+    FrameLayout.LayoutParams listParams = FrameLayoutFix.newParams(-1, -1);
+    listParams.topMargin = HeaderView.getSize(false);
+    topicPickerView.addView(picker.getValue(), listParams);
+    topicPickerView.addView(pickerHeader);
+
+    FrameLayout.LayoutParams params = FrameLayoutFix.newParams(-1, -1);
+    params.gravity = Gravity.BOTTOM;
+    params.height = topicPickerHeight();
+    wrapView.addView(topicPickerView, params);
+    recipientSearchVisibility = chatSearchView.getVisibility();
+    recipientGridVisibility = contentView.getVisibility();
+    chatSearchView.setVisibility(View.INVISIBLE);
+    fixView.setVisibility(View.INVISIBLE);
+    contentView.setVisibility(View.INVISIBLE);
+    headerView.setVisibility(View.INVISIBLE);
+    picker.setBottomInset(extraBottomInset, extraBottomInsetWithoutIme);
+    animatePickerPage(picker.getValue(), true);
+    animatePickerPage(pickerHeader, true);
+  }
+
+  @me.vkryl.annotation.MadeByLLM(value = "gpt-6.2-astra", id = "floating-forum-picker")
+  private int topicPickerHeight () {
+    int height = getTargetHeight();
+    int available = Math.max(0, height - extraBottomInset);
+    return Math.min(height - HeaderView.getTopOffset(),
+      extraBottomInset + available / 2 + HeaderView.getSize(false));
+  }
+
+  private void animatePickerPage (View page, boolean forward) {
+    if (Settings.instance().needReduceMotion() ||
+      !android.animation.ValueAnimator.areAnimatorsEnabled()) {
+      return;
+    }
+    page.setTranslationX(Screen.dp(16) * (forward != Lang.rtl() ? 1 : -1));
+    page.setAlpha(0f);
+    page.animate().translationX(0f).alpha(1f).setDuration(180L)
+      .setInterpolator(AnimatorUtils.DECELERATE_INTERPOLATOR).start();
+  }
+
+  private void closeTopicPicker (boolean animate) {
+    if (topicPicker != null) {
+      topicPicker.hideSoftwareKeyboard();
+      wrapView.removeView(topicPickerView);
+      topicPicker.performDestroy();
+      topicPicker = null;
+      topicPickerView = null;
+      chatSearchView.setVisibility(recipientSearchVisibility);
+      fixView.setVisibility(View.VISIBLE);
+      contentView.setVisibility(recipientGridVisibility);
+      headerView.setVisibility(View.VISIBLE);
+      if (animate) {
+        animatePickerPage(inSearchMode() ? chatSearchView : contentView, false);
+        animatePickerPage(headerView, false);
+        if (!pendingRecipientSelections.isEmpty()) {
+          UI.post(this::resumeRecipientSelections);
+        }
+      }
+    }
+  }
+
+  @me.vkryl.annotation.MadeByLLM(value = "gpt-6.2-sol", id = "forum-forward-review")
+  private void resumeRecipientSelections () {
+    while (topicPicker == null && !pendingRecipientSelections.isEmpty()) {
+      pendingRecipientSelections.removeFirst().run();
+    }
+  }
+
+  private void completeRecipientCheck (View view, TGFoundChat chat, @Nullable RunnableBool after) {
+    Runnable complete = () -> {
+      lockedChatIds.remove(chat.getAnyId());
+      toggleCheckedImpl(view, chat, after, false);
+    };
+    if (topicPicker != null) {
+      pendingRecipientSelections.addLast(complete);
+    } else {
+      complete.run();
+    }
+  }
+
   private boolean toggleChecked (View view, TGFoundChat chat, RunnableBool after) {
     return toggleCheckedImpl(view, chat, after, true);
   }
@@ -1994,7 +2151,8 @@ public class ShareController extends TelegramViewController<ShareController.Args
 
   private boolean toggleCheckedImpl (View view, TGFoundChat chat, @Nullable RunnableBool after, boolean performAsyncChecks) {
     long chatId = chat.getAnyId();
-    if (lockedChatIds.has(chatId)) {
+    if (isDestroyed() || isSent || topicPicker != null || popupLayout.isWindowHidden() ||
+      lockedChatIds.has(chatId)) {
       return false;
     }
 
@@ -2009,46 +2167,62 @@ public class ShareController extends TelegramViewController<ShareController.Args
         // Should be fixed inside `after` contents.
         if (ChatId.isUserChat(chatId) && hasVoiceOrVideoMessageContent()) {
           lockedChatIds.add(chatId);
-          tdlib.cache().userFull(tdlib.chatUserId(chatId), userFullInfo -> {
-            lockedChatIds.remove(chatId);
-            toggleCheckedImpl(view, chat, after, false);
-          });
+          tdlib.cache().userFull(tdlib.chatUserId(chatId),
+            ignored -> completeRecipientCheck(view, chat, after));
           return false;
         } else if (ChatId.isSupergroup(chatId)) {
           lockedChatIds.add(chatId);
-          tdlib.cache().supergroupFull(ChatId.toSupergroupId(chatId), supergroupFullInfo -> {
-            lockedChatIds.remove(chatId);
-            toggleCheckedImpl(view, chat, after, false);
-          });
+          tdlib.cache().supergroupFull(ChatId.toSupergroupId(chatId),
+            ignored -> completeRecipientCheck(view, chat, after));
           return false;
         }
       }
       if ((mode == MODE_MESSAGES && messageProperties == null) || showErrorMessage(view, chatId, false)) {
         result = false;
+      } else if (isForwardForum(chatId)) {
+        openTopicPicker(view, chat, after);
+        return false;
       }
     }
 
-    if (result) {
-      selectedChats.put(chatId, chat);
-      selectedChatIds.append(chatId);
-      hasSelectedAnything = true;
-    } else {
-      selectedChats.remove(chatId);
-      selectedChatIds.remove(chatId);
+    setChatChecked(chat, result);
+    if (!result) {
+      updateFoundChatChecked(view, chatId, false);
     }
-    checkAbilityToSend();
-    updateHeader();
     if (after != null) {
       after.runWithBool(result);
     }
     return result;
   }
 
+  private void setChatChecked (TGFoundChat chat, boolean checked) {
+    long chatId = chat.getAnyId();
+    topicValidation = null;
+    if (checked) {
+      selectedChats.put(chatId, chat);
+      selectedChatIds.append(chatId);
+      hasSelectedAnything = true;
+    } else {
+      selectedChats.remove(chatId);
+      selectedChatIds.remove(chatId);
+      selectedForumTopics.remove(chatId);
+    }
+    checkAbilityToSend();
+    updateHeader();
+  }
+
+  private String selectedChatTitle (TGFoundChat chat, String title) {
+    TdApi.ForumTopicInfo topic = selectedForumTopics.get(chat.getAnyId());
+    return topic == null ? title :
+      Lang.getString(R.string.format_chatAndSignature, title, topic.name);
+  }
+
   private void updateHeader () {
     if (selectedChats.size() == 0) {
       headerCell.setSubtitle(Lang.lowercase(Lang.getString(R.string.SelectChats)));
     } else if (selectedChats.size() == 1) {
-      headerCell.setSubtitle(selectedChats.valueAt(0).getFullTitle());
+      TGFoundChat chat = selectedChats.valueAt(0);
+      headerCell.setSubtitle(selectedChatTitle(chat, chat.getFullTitle()));
     } else {
       final int size = selectedChatIds.size();
       int count = 0;
@@ -2065,7 +2239,7 @@ public class ShareController extends TelegramViewController<ShareController.Args
         if (chat.isSelfChat()) {
           names.add(Lang.getString(R.string.SavedMessages));
         } else {
-          names.add(chat.getSingleLineTitle().toString());
+          names.add(selectedChatTitle(chat, chat.getSingleLineTitle().toString()));
         }
         count++;
       }
@@ -2143,10 +2317,16 @@ public class ShareController extends TelegramViewController<ShareController.Args
         }
       } else if (itemId == R.id.search_chat) {
         if (!processSingleTap(chat)) {
-          toggleChecked(v, chat, isChecked ->
-            ((VerticalChatView) v).setIsChecked(isChecked, true)
-          );
-          closeSearchMode(null);
+          if (isForwardForum(chat.getAnyId())) {
+            toggleChecked(v, chat, checked -> {
+              if (checked) {
+                onFoundChatClickAfter(chat);
+              }
+            });
+          } else {
+            toggleChecked(v, chat, checked -> ((VerticalChatView) v).setIsChecked(checked, true));
+            closeSearchMode(null);
+          }
         }
       }
     }
@@ -2382,7 +2562,8 @@ public class ShareController extends TelegramViewController<ShareController.Args
 
   @Override
   public boolean shouldTouchOutside (float x, float y) {
-    return headerView != null && y < headerView.getTranslationY() - HeaderView.getSize(true);
+    return topicPicker == null && headerView != null &&
+      y < headerView.getTranslationY() - HeaderView.getSize(true);
   }
 
   private PopupLayout popupLayout;
@@ -2429,6 +2610,15 @@ public class ShareController extends TelegramViewController<ShareController.Args
     originalParams.bottomMargin = 0;
     recyclerView.setPadding(0, 0, 0, insets.bottom);
     setBottomInset(insets.bottom, insetsWithoutIme.bottom);
+    if (topicPicker != null) {
+      ViewGroup.LayoutParams params = topicPickerView.getLayoutParams();
+      int height = topicPickerHeight();
+      if (params.height != height) {
+        params.height = height;
+        topicPickerView.setLayoutParams(params);
+      }
+      topicPicker.setBottomInset(insets.bottom, insetsWithoutIme.bottom);
+    }
   }
 
   @Override
@@ -2459,6 +2649,9 @@ public class ShareController extends TelegramViewController<ShareController.Args
 
   @Override
   public int getCurrentPopupHeight () {
+    if (topicPicker != null) {
+      return topicPickerHeight();
+    }
     return (getTargetHeight() - detectTopRecyclerEdge() - (int) ((float) HeaderView.getTopOffset() * (1f - (lickView != null ? lickView.factor : 0f))));
   }
 
@@ -3380,6 +3573,7 @@ public class ShareController extends TelegramViewController<ShareController.Args
   // Send messages
 
   private boolean isSent;
+  private Object topicValidation;
   private boolean needHideAuthor, needRemoveCaptions, forceSendWithoutSound;
 
   private void sendMessages (boolean forceGoToChat, boolean isSingleTap, @Nullable TdApi.MessageSendOptions finalSendOptions) {
@@ -3387,7 +3581,8 @@ public class ShareController extends TelegramViewController<ShareController.Args
   }
 
   private void sendMessages (boolean forceGoToChat, boolean isSingleTap, @Nullable TdApi.MessageSendOptions finalSendOptions, boolean reloadProperties) {
-    if (selectedChats.size() == 0 || isSent) {
+    if (selectedChats.size() == 0 || isSent || topicPicker != null ||
+      topicValidation != null || popupLayout.isWindowHidden()) {
       return;
     }
 
@@ -3404,6 +3599,61 @@ public class ShareController extends TelegramViewController<ShareController.Args
       }
     }
 
+    if (selectedForumTopics.size() == 0) {
+      sendToSelectedChats(forceGoToChat, isSingleTap, finalSendOptions);
+    } else {
+      Object validation = new Object();
+      topicValidation = validation;
+      validateSelectedTopics(validation, 0, () ->
+        sendToSelectedChats(forceGoToChat, isSingleTap, finalSendOptions));
+    }
+  }
+
+  @me.vkryl.annotation.MadeByLLM(value = "gpt-6.2-sol", id = "forum-forward-review")
+  private void validateSelectedTopics (Object validation, int index, Runnable onValid) {
+    if (index == selectedForumTopics.size()) {
+      topicValidation = null;
+      onValid.run();
+      return;
+    }
+    TdApi.ForumTopicInfo selected = selectedForumTopics.valueAt(index);
+    Runnable timeout = () -> {
+      if (topicValidation == validation && !isDestroyed() && !popupLayout.isWindowHidden()) {
+        topicValidation = null;
+        UI.showError(new TdApi.Error(408, "Forum topic request timed out"));
+      }
+    };
+    UI.post(timeout, ForumTopicStore.REQUEST_TIMEOUT_MS);
+    tdlib.client().send(new TdApi.GetForumTopic(selected.chatId, selected.forumTopicId),
+      result -> runOnUiThreadOptional(() -> {
+        UI.removePendingRunnable(timeout);
+        if (topicValidation != validation || popupLayout.isWindowHidden()) {
+          return;
+        }
+        if (result instanceof TdApi.ForumTopic && canForwardToTopic((TdApi.ForumTopic) result)) {
+          validateSelectedTopics(validation, index + 1, onValid);
+        } else {
+          topicValidation = null;
+          if (result instanceof TdApi.Error) {
+            UI.showError(result);
+          } else {
+            UI.showToast(R.string.ForumTopicUnavailable, Toast.LENGTH_SHORT);
+          }
+        }
+      }));
+  }
+
+  @Nullable
+  private TdApi.MessageTopicForum selectedMessageTopic (long chatId) {
+    TdApi.ForumTopicInfo topic = selectedForumTopics.get(chatId);
+    return topic != null ? new TdApi.MessageTopicForum(topic.forumTopicId) : null;
+  }
+
+  private void sendToSelectedChats (
+    boolean forceGoToChat,
+    boolean isSingleTap,
+    @Nullable TdApi.MessageSendOptions finalSendOptions
+  ) {
     final ArrayList<TdApi.Function<?>> functions = new ArrayList<>();
     final TdApi.FormattedText comment = inputView.getOutputText(true);
 
@@ -3418,10 +3668,16 @@ public class ShareController extends TelegramViewController<ShareController.Args
 
     for (int i = 0; i < selectedChatIds.size(); i++) {
       final long chatId = selectedChatIds.get(i);
-      if (showErrorMessage(null, chatId, true))
+      if (showErrorMessage(null, chatId, true)) {
         return;
+      }
+      final TdApi.MessageTopicForum topic = selectedMessageTopic(chatId);
+      if (topic == null && isForwardForum(chatId)) {
+        UI.showToast(R.string.ForumTopicUnavailable, Toast.LENGTH_SHORT);
+        return;
+      }
 
-      final TdApi.Chat chat = tdlib.chat(selectedChatIds.get(i));
+      final TdApi.Chat chat = tdlib.chat(chatId);
       if (chat == null) {
         long myUserId = tdlib.myUserId();
         if (chatId != myUserId) {
@@ -3464,7 +3720,8 @@ public class ShareController extends TelegramViewController<ShareController.Args
             replyTo = new TdApi.InputMessageReplyToMessage(contentfulMediaMessageId != 0 ? contentfulMediaMessageId : args.messages[0].id, null, 0, "");
           }
         }
-        functions.addAll(TD.sendMessageText(chatId, null, replyTo, sendOptions, new TdApi.InputMessageText(comment, null, false), tdlib.maxMessageTextLength()));
+        functions.addAll(TD.sendMessageText(chatId, topic, replyTo, sendOptions,
+          new TdApi.InputMessageText(comment, null, false), tdlib.maxMessageTextLength()));
       }
       switch (mode) {
         case MODE_TEXT: {
@@ -3472,8 +3729,10 @@ public class ShareController extends TelegramViewController<ShareController.Args
           break;
         }
         case MODE_MESSAGES: {
-          if (!messageReplyIncluded && !TD.forwardMessages(chatId, null, args.messages, needHideAuthor, needRemoveCaptions, sendOptions, functions))
+          if (!messageReplyIncluded && !TD.forwardMessages(chatId, topic, args.messages,
+            needHideAuthor, needRemoveCaptions, sendOptions, functions)) {
             return;
+          }
           break;
         }
         case MODE_GAME: {
@@ -3548,8 +3807,13 @@ public class ShareController extends TelegramViewController<ShareController.Args
       UI.showToast(R.string.DoneSave, Toast.LENGTH_SHORT);
     } else if ((args.needOpenChat || forceGoToChat) && selectedChats.size() == 1) {
       ViewController<?> c = context().navigation().getCurrentStackItem();
-      if (!(c instanceof MessagesController && ((MessagesController) c).compareChat(selectedChats.valueAt(0).getAnyId(), (TdApi.MessageTopic) null))) {
-        UI.post(() -> tdlib.ui().openChat(ShareController.this, selectedChats.valueAt(0).getAnyId(), null), 250);
+      long chatId = selectedChats.valueAt(0).getAnyId();
+      TdApi.MessageTopicForum topic = selectedMessageTopic(chatId);
+      if (!(c instanceof MessagesController &&
+        ((MessagesController) c).compareChat(chatId, topic))) {
+        TdlibUi.ChatOpenParameters parameters = topic != null ?
+          new TdlibUi.ChatOpenParameters().messageTopic(topic) : null;
+        UI.post(() -> tdlib.ui().openChat(ShareController.this, chatId, parameters), 250);
       }
     } else {
       UI.showToast(R.string.Done, Toast.LENGTH_SHORT);
@@ -3746,6 +4010,8 @@ public class ShareController extends TelegramViewController<ShareController.Args
 
   @Override
   public void destroy () {
+    pendingRecipientSelections.clear();
+    closeTopicPicker(false);
     super.destroy();
     for (TdlibChatListSlice list : listByChatList.values()) {
       list.performDestroy();

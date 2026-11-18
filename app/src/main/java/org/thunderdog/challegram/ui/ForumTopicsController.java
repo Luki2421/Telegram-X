@@ -25,6 +25,7 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.DiffUtil;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -38,6 +39,7 @@ import org.thunderdog.challegram.data.TD;
 import org.thunderdog.challegram.data.ForumTopicSelection;
 import org.thunderdog.challegram.data.ForumTopicSelection.Action;
 import org.thunderdog.challegram.data.ForumTopicPolicy;
+import org.thunderdog.challegram.navigation.DoubleHeaderView;
 import org.thunderdog.challegram.navigation.HeaderButton;
 import org.thunderdog.challegram.navigation.HeaderView;
 import org.thunderdog.challegram.navigation.MoreDelegate;
@@ -68,6 +70,7 @@ import java.util.Map;
 import java.util.List;
 
 import me.vkryl.core.collection.IntList;
+import me.vkryl.core.lambda.RunnableData;
 
 /** Owns a cancellable list session; no forum identifiers are encoded as generic threads. */
 @me.vkryl.annotation.MadeByLLM(value = "gpt-6-astra", id = "forum-topics", ref = "PR #1095")
@@ -83,6 +86,13 @@ public final class ForumTopicsController
       this.chatId = chatId;
       this.chatList = chatList;
     }
+  }
+
+  private RunnableData<TdApi.ForumTopic> topicPicker;
+
+  @me.vkryl.annotation.MadeByLLM(value = "gpt-6.2-sol", id = "forward-forum-topics")
+  void setTopicPicker (RunnableData<TdApi.ForumTopic> topicPicker) {
+    this.topicPicker = topicPicker;
   }
 
   private ForumTopicStore.ListSession session;
@@ -113,6 +123,7 @@ public final class ForumTopicsController
   private int restorePosition = -1, restoreOffset;
   private ForumTopicUi topicUi;
   private ChatHeaderView chatHeader;
+  private DoubleHeaderView pickerHeader;
   private ForumTopicSelection selection;
   private int[] restoredSelection;
   private final Map<Integer, ForumTopicStore.TopicSubscription> selectedObservers = new HashMap<>();
@@ -183,6 +194,9 @@ public final class ForumTopicsController
 
   @Override protected View onCreateView (Context context) {
     FrameLayout content = (FrameLayout) super.onCreateView(context);
+    if (topicPicker != null) {
+      return content;
+    }
     createButton = new CircleButton(context);
     createButton.init(
       R.drawable.baseline_add_24,
@@ -222,10 +236,34 @@ public final class ForumTopicsController
       clearTopicSelection();
     }
     super.setArguments(arguments);
-    selection = new ForumTopicSelection(tdlib.id(), arguments.chatId);
+    if (topicPicker == null) {
+      selection = new ForumTopicSelection(tdlib.id(), arguments.chatId);
+    }
+  }
+
+  @Override protected boolean useGraySearchHeader () {
+    return topicPicker != null || super.useGraySearchHeader();
+  }
+
+  @Override protected int getHeaderColorId () {
+    return topicPicker != null ? ColorId.filling : super.getHeaderColorId();
+  }
+
+  @Override protected int getHeaderIconColorId () {
+    return topicPicker != null ? ColorId.icon : super.getHeaderIconColorId();
   }
 
   @Override public View getCustomHeaderCell () {
+    if (topicPicker != null) {
+      if (pickerHeader == null) {
+        pickerHeader = new DoubleHeaderView(context());
+        pickerHeader.initWithMargin(Screen.dp(56), false);
+        pickerHeader.setThemedTextColor(ColorId.text, ColorId.textLight, this);
+        pickerHeader.setTitle(getName());
+        pickerHeader.setSubtitle(R.string.ForumSelectTopic);
+      }
+      return pickerHeader;
+    }
     if (chatHeader == null) {
       chatHeader = new ChatHeaderView(context(), tdlib, this);
       chatHeader.setInnerMargins(Screen.dp(56), Screen.dp(98));
@@ -239,6 +277,15 @@ public final class ForumTopicsController
   @Override protected void onCreateView (Context context, CustomRecyclerView recyclerView) {
     topicUi = new ForumTopicUi(this, getChatId());
     adapter = new TopicAdapter();
+    if (topicPicker != null) {
+      GridLayoutManager grid = new GridLayoutManager(context, 4);
+      grid.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+        @Override public int getSpanSize (int position) {
+          return adapter.getItemViewType(position) == 0 ? 1 : grid.getSpanCount();
+        }
+      });
+      recyclerView.setLayoutManager(grid);
+    }
     recyclerView.setAdapter(adapter);
     recyclerView.addOnAttachStateChangeListener(rowsRefreshAttachListener);
     recyclerView.addOnLayoutChangeListener(
@@ -256,6 +303,10 @@ public final class ForumTopicsController
         }
       }
     );
+    if (topicPicker != null) {
+      openSession();
+      return;
+    }
     tdlib.listeners().subscribeToChatUpdates(getChatId(), this);
     tdlib.listeners().subscribeToSettingsUpdates(this);
     tdlib.listeners().addCleanupListener(this);
@@ -336,13 +387,24 @@ public final class ForumTopicsController
     if (!restoringSearch) {
       clearTopicSelection();
     }
-    restorePosition = -1;
+    restorePosition = topicPicker != null ? 0 : -1;
+    restoreOffset = 0;
     snapshot = null;
     adapter.update(null);
     getRecyclerView().scrollToPosition(0);
     if (session != null) {
       session.setQuery(query);
     }
+  }
+
+  @Override public boolean closeSearchModeByBackPress (boolean fromTop, boolean commit) {
+    if (topicPicker != null && inSearchMode()) {
+      if (commit) {
+        closeSearchMode(null);
+      }
+      return true;
+    }
+    return super.closeSearchModeByBackPress(fromTop, commit);
   }
 
   @Override protected void onSearchInputChanged (String query) {
@@ -388,6 +450,9 @@ public final class ForumTopicsController
   @Override public void fillMenuItems (int id, HeaderView header, LinearLayout menu) {
     if (id == R.id.menu_forumTopics) {
       header.addSearchButton(menu, this);
+      if (topicPicker != null) {
+        return;
+      }
       header.addButton(
         menu,
         R.id.menu_forumActions,
@@ -1053,7 +1118,8 @@ public final class ForumTopicsController
       super(context);
       setLayoutParams(new RecyclerView.LayoutParams(-1, Screen.dp(144)));
       // Keep space for the floating Create button without changing height during refreshes.
-      setPadding(Screen.dp(20), Screen.dp(24), Screen.dp(20), Screen.dp(88));
+      int bottomPadding = Screen.dp(topicPicker != null ? 24 : 88);
+      setPadding(Screen.dp(20), Screen.dp(24), Screen.dp(20), bottomPadding);
       progress = new ProgressComponentView(context);
       progress.initBig(1f);
       progress.setContentDescription(Lang.getString(R.string.ForumTopicsLoading));
@@ -1094,6 +1160,10 @@ public final class ForumTopicsController
     void update (ForumTopicStore.Snapshot value) {
       List<TdApi.ForumTopic> old = topics;
       List<TdApi.ForumTopic> next = value != null ? value.topics : Collections.emptyList();
+      if (topicPicker != null && !next.isEmpty()) {
+        next = new ArrayList<>(next);
+        next.removeIf(topic -> topic.info.isHidden);
+      }
       DiffUtil.DiffResult diff = DiffUtil.calculateDiff(new ForumTopicListDiff(old, next));
       topics = next;
       diff.dispatchUpdatesTo(this);
@@ -1120,7 +1190,7 @@ public final class ForumTopicsController
     @Override public RecyclerView.ViewHolder onCreateViewHolder (ViewGroup parent, int type) {
       View view;
       if (type == 0) {
-        ForumTopicView row = new ForumTopicView(parent.getContext(), tdlib);
+        ForumTopicView row = new ForumTopicView(parent.getContext(), tdlib, topicPicker != null);
         row.setLayoutParams(
           new RecyclerView.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1130,6 +1200,12 @@ public final class ForumTopicsController
         row.setOnClickListener(
           v -> {
             TdApi.ForumTopic topic = row.getTopic();
+            if (topicPicker != null) {
+              if (topic != null) {
+                topicPicker.runWithData(topic);
+              }
+              return;
+            }
             if (topic != null && selection != null && !selection.isEmpty()) {
               toggleSelection(topic);
               return;
@@ -1148,7 +1224,7 @@ public final class ForumTopicsController
         );
         row.setOnLongClickListener(
           v -> {
-            if (row.getTopic() == null) {
+            if (topicPicker != null || row.getTopic() == null) {
               return false;
             }
             toggleSelection(row.getTopic());

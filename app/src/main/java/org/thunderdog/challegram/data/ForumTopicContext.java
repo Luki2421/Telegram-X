@@ -102,7 +102,16 @@ public final class ForumTopicContext {
   }
 
   public boolean canSend (@Nullable TdApi.ChatMemberStatus status, boolean supergroup) {
-    if (topic == null || error != null) {
+    return error == null && canSend(topic, status, supergroup);
+  }
+
+  @me.vkryl.annotation.MadeByLLM(value = "gpt-6.2-sol", id = "forward-forum-topics")
+  public static boolean canSend (
+    @Nullable TdApi.ForumTopic topic,
+    @Nullable TdApi.ChatMemberStatus status,
+    boolean supergroup
+  ) {
+    if (topic == null) {
       return false;
     }
     if (!supergroup || !topic.info.isClosed || topic.info.isOutgoing) {

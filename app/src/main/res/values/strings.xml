@@ -155,6 +155,7 @@
   <string name="ForumGeneral">General</string>
   <string name="ForumPinned">Pinned</string>
   <string name="ForumHidden">Hidden</string>
+  <string name="ForumSelectTopic">Select a topic</string>
   <string name="ForumSearchTopics">Search topics</string>
   <string name="ForumTopicsLoading">Loading topics…</string>
   <string name="ForumTopicsEmpty">No topics found</string>
