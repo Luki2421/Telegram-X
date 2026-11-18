@@ -17,7 +17,6 @@ package org.thunderdog.challegram.util.text;
 
 import android.graphics.Canvas;
 import android.graphics.Rect;
-import android.os.Build;
 import android.text.TextPaint;
 import android.view.View;
 
@@ -167,6 +166,19 @@ public class TextPart {
     return TextEntity.equals(this.entity, entity, TextEntity.COMPARE_MODE_SPOILER, source.getText());
   }
 
+  private boolean isFormatOnly () {
+    // Marks of direction, joiners and other format characters draw nothing without width
+    if (width != 0 || media != null || emojiInfo != null) {
+      return false;
+    }
+    for (int i = start; i < end; i++) {
+      if (Character.getType(line.charAt(i)) != Character.FORMAT) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   public boolean isWhitespace () {
     return entity == null && (this.end - this.start) == Strings.countCharacters(line, start, end, (c) -> c == ' ');
   }
@@ -242,6 +254,10 @@ public class TextPart {
     return media != null;
   }
 
+  boolean canDrawRange () {
+    return media == null && emojiInfo == null && !BiDiUtils.isRtl(bidiEntity);
+  }
+
   public int makeX (int startX, int endX, int endXBottomPadding) {
     int x;
     int startXPadding, endXPadding;
@@ -278,7 +294,7 @@ public class TextPart {
     return source;
   }
 
-  private TextPaint getPaint (int partIndex, float alpha, @Nullable TextColorSet defaultTheme) {
+  TextPaint getPaint (int partIndex, float alpha, @Nullable TextColorSet defaultTheme) {
     TextPaint textPaint = source.getTextPaint(entity);
     int textColor = source.getTextColor(defaultTheme, entity, source.isClickable(entity), source.isPressed(partIndex));
     textPaint.setColor(ColorUtils.alphaColor(alpha, textColor));
@@ -293,7 +309,16 @@ public class TextPart {
     TextPaint paint = getPaint(partIndex, alpha, colorProvider);
     final float textSize = paint.getTextSize();
     final int textY = y + source.getAscent(textSize) + paint.baselineShift;
-    c.drawText(line, start, end, x, textY, paint);
+    drawText(c, end, x, textY, paint);
+  }
+
+  private void drawText (Canvas c, int end, float x, float y, TextPaint paint) {
+    final char[] chars = source.getDrawnChars(line);
+    if (chars != null) {
+      c.drawText(chars, start, end - start, x, y, paint);
+    } else {
+      c.drawText(line, start, end, x, y, paint);
+    }
   }
 
   private void drawError (Canvas c, float cx, float cy, float radius, float alpha, int color) {
@@ -346,6 +371,9 @@ public class TextPart {
   }
 
   public void draw (int partIndex, Canvas c, int startX, int endX, int endXBottomPadding, int startY, float alpha, @Nullable TextColorSet colorProvider, @Nullable ComplexReceiver receiver) {
+    if (isFormatOnly()) {
+      return;
+    }
     final int y = startY + this.y;
     final int x = makeX(startX, endX, endXBottomPadding);
     final TextPaint textPaint = getPaint(partIndex, alpha, colorProvider);
@@ -354,7 +382,7 @@ public class TextPart {
     if (media != null) {
       if (media.isNotFoundCustomEmoji()) {
         if (emojiInfo != null) {
-          drawEmoji(c, x, y, textPaint, alpha);
+          drawEmoji(c, x, y, textPaint, 1f);
         } else {
           drawError(c, x + height / 2f, y + height / 2f, height / 2f, alpha, 0xffff0000);
         }
@@ -398,7 +426,7 @@ public class TextPart {
         }
       }
     } else if (isRecognizedEmoji()) {
-      drawEmoji(c, x, y, textPaint, alpha);
+      drawEmoji(c, x, y, textPaint, 1f);
     } else {
       final int textY = y + source.getAscent(textSize) + textPaint.baselineShift;
       if (DEBUG && BiDiUtils.isValid(bidiEntity)) {
@@ -407,10 +435,20 @@ public class TextPart {
         c.drawRect(x, textY - Screen.dp(16), x + width, textY, Paints.strokeSmallPaint(0xFF000000));
       }
 
-      if ((BiDiUtils.isValid(bidiEntity))) {
-        c.drawTextRun(line, start, end, 0, line.length(), x, textY, BiDiUtils.isRtl(bidiEntity), textPaint);
+      if (BiDiUtils.isValid(bidiEntity)) {
+        final boolean isRtl = BiDiUtils.isRtl(bidiEntity);
+        final char[] chars = source.getDrawnChars(line);
+        // As layout measures it: Canvas looks for the ends of words in the whole context
+        final int contextStart = Math.max(0, start - Text.MEASURE_CONTEXT_LENGTH);
+        final int contextEnd = Math.min(line.length(), end + Text.MEASURE_CONTEXT_LENGTH);
+        if (chars != null) {
+          c.drawTextRun(chars, start, end - start, contextStart, contextEnd - contextStart,
+            x, textY, isRtl, textPaint);
+        } else {
+          c.drawTextRun(line, start, end, contextStart, contextEnd, x, textY, isRtl, textPaint);
+        }
       } else {
-        c.drawText(line, start, end, x, textY, textPaint);
+        drawText(c, end, x, textY, textPaint);
       }
     }
   }

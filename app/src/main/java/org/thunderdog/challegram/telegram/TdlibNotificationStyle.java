@@ -25,7 +25,6 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.net.Uri;
-import android.os.Build;
 import android.util.SparseIntArray;
 
 import androidx.annotation.DrawableRes;
@@ -438,6 +437,24 @@ public class TdlibNotificationStyle implements TdlibNotificationStyleDelegate, F
       }
     }
 
+    NotificationCompat.Action callBackAction = null;
+    long callBackUserId = hasShownCall(helper, group) ? tdlib.chatUserId(chat) : 0;
+    if (callBackUserId != 0) {
+      PendingIntent pendingIntent = PendingIntent.getActivity(
+        AppContext.get(),
+        Intents.REQUEST_CODE_CALL_BACK,
+        Intents.valueOfCallBack(tdlib.id(), callBackUserId),
+        PendingIntent.FLAG_UPDATE_CURRENT | Intents.mutabilityFlags(false)
+      );
+      callBackAction = new NotificationCompat.Action.Builder(
+        R.drawable.baseline_phone_24_white,
+        Lang.getString(R.string.CallBack),
+        pendingIntent
+      )
+        .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_CALL)
+        .build();
+    }
+
     Intent hideIntent = new Intent(AppContext.get(), TGRemoveReceiver.class);
     Intents.secureIntent(hideIntent, true);
     TdlibNotificationExtras.put(hideIntent, tdlib, group, needReplyToMessage, allMessageIds, allUserIds);
@@ -584,6 +601,9 @@ public class TdlibNotificationStyle implements TdlibNotificationStyleDelegate, F
       builder.setSubText(Lang.getNotificationCategory(category));
     }
 
+    if (callBackAction != null) {
+      builder.addAction(callBackAction);
+    }
     if (!Passcode.instance().isLocked()) {
       if (muteAction != null)
         builder.addInvisibleAction(muteAction);
@@ -615,7 +635,7 @@ public class TdlibNotificationStyle implements TdlibNotificationStyleDelegate, F
       builder.setAllowSystemGeneratedContextualActions(allowPreview && needPreview && hasCustomText[0]);
     }
 
-    rShortcutId = createShortcut(builder, context, group, visualChatTitle, chatId, bitmap);
+    rShortcutId = createShortcut(builder, context, group, visualChatTitle, chatId, channelId, bitmap);
 
     int state;
     Notification notification;
@@ -664,7 +684,9 @@ public class TdlibNotificationStyle implements TdlibNotificationStyleDelegate, F
     // FIXME 7.0-7.1 android.os.FileUriExposedException:
     // Cleanup
 
-    if (rShortcutId != null) {
+    // A shortcut removed before the system cached it takes its conversation's channels with it
+    if (rShortcutId != null &&
+      TdlibNotificationUtils.isCachedShortcut(context, rShortcutId)) {
       ShortcutManagerCompat.removeDynamicShortcuts(context, Collections.singletonList(rShortcutId));
     }
 
@@ -679,37 +701,36 @@ public class TdlibNotificationStyle implements TdlibNotificationStyleDelegate, F
 
   // Common notification
 
-
-  protected final String createShortcut (NotificationCompat.Builder builder, Context context, @NonNull TdlibNotificationGroup group, CharSequence visualChatTitle, long chatId, Bitmap icon) {
+  protected final String createShortcut (
+    NotificationCompat.Builder builder,
+    Context context,
+    @NonNull TdlibNotificationGroup group,
+    CharSequence visualChatTitle,
+    long chatId,
+    @Nullable String channelId,
+    Bitmap icon
+  ) {
     long localChatId = tdlib.settings().getLocalChatId(chatId);
-    String localKey = "tgx_ns_" + tdlib.id() + "_" + localChatId;
-    IconCompat chatIcon = U.isValidBitmap(icon) ? IconCompat.createWithBitmap(icon) : null;
-
-    Person groupPerson = new Person.Builder()
-      .setName(visualChatTitle)
-      .setIcon(chatIcon)
-      .setKey(localKey)
-      .build();
-
-    ShortcutInfoCompat shortcut = new ShortcutInfoCompat.Builder(context, localKey)
-      .setPerson(groupPerson)
-      .setIsConversation()
-      .setLongLived(true)
-      .setShortLabel(visualChatTitle)
-      // region @MadeByLLM("gpt-6-astra", id = "forum-topics", ref = "PR #1095")
-      .setIntent(
-        TdlibNotificationUtils.newCoreIntent(
-          tdlib.id(),
-          localChatId,
-          group.findTargetMessageId(),
-          group.getMessageTopicId()
-        )
-      )
-      // endregion
-      .setIcon(chatIcon)
-      .build();
-
-    ShortcutManagerCompat.pushDynamicShortcut(context, shortcut);
+    String localKey = TdlibNotificationUtils.findShortcutId(tdlib.id(), localChatId, channelId);
+    if (!TdlibNotificationUtils.canPost(context, channelId, localKey) ||
+      !TdlibNotificationUtils.hasPlaceForShortcut(context, localKey, 0)) {
+      // Without a push the id still leads the post to its conversation's own channel
+      builder.setShortcutId(localKey);
+      return null;
+    }
+    ShortcutInfoCompat shortcut = TdlibNotificationUtils.newChatShortcut(
+      context,
+      tdlib.id(),
+      localKey,
+      visualChatTitle,
+      localChatId,
+      group.findTargetMessageId(),
+      group.getMessageTopicId(),
+      icon
+    );
+    if (!TdlibNotificationUtils.pushShortcut(context, shortcut)) {
+      return null;
+    }
     builder.setShortcutInfo(shortcut);
 
     // TODO: Uncomment to support bubbles. Not usable at the moment.
@@ -1003,14 +1024,21 @@ public class TdlibNotificationStyle implements TdlibNotificationStyleDelegate, F
     return notification.isCall() && helper.needPreview(notification.group());
   }
 
-  private static @DrawableRes int smallIcon (@NonNull TdlibNotificationHelper helper,
+  private static boolean hasShownCall (@NonNull TdlibNotificationHelper helper,
     Iterable<TdlibNotification> notifications) {
     for (TdlibNotification notification : notifications) {
       if (isShownCall(helper, notification)) {
-        return R.drawable.baseline_call_missed_24_white;
+        return true;
       }
     }
-    return R.mipmap.app_notification;
+    return false;
+  }
+
+  private static @DrawableRes int smallIcon (@NonNull TdlibNotificationHelper helper,
+    Iterable<TdlibNotification> notifications) {
+    return hasShownCall(helper, notifications) ?
+      R.drawable.baseline_call_missed_24_white :
+      R.mipmap.app_notification;
   }
 
   private NotificationCompat.Builder buildCommonNotification (Context context, @NonNull TdlibNotificationHelper helper, int badgeCount, boolean allowPreview, @Nullable TdlibNotificationSettings settings, final List<TdlibNotification> notifications, final int category, boolean isRebuild) {

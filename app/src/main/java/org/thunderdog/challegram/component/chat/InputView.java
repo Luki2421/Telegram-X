@@ -22,7 +22,6 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
-import android.os.Build;
 import android.text.Editable;
 import android.text.InputFilter;
 import android.text.Layout;
@@ -153,7 +152,6 @@ public class InputView extends NoClipEditText implements InlineSearchContext.Cal
   // region @MadeByLLM("gpt-6-astra", id = "forum-topics", ref = "PR #1095")
   private boolean inputDestroyed;
   // endregion
-  private boolean ignoreDraft;
 
   private String suffix = "", prefix = "", displaySuffix = "";
   private int prefixWidth, suffixWidth;
@@ -873,7 +871,7 @@ public class InputView extends NoClipEditText implements InlineSearchContext.Cal
     TextSelection selection = getTextSelection();
     if (controller != null) {
       inlineContext.onTextChanged(s, str, selection != null && selection.isEmpty() ? selection.start : -1);
-      controller.onInputTextChange(s, !ignoreDraft && byUserAction);
+      controller.onInputTextChange(s, byUserAction);
     } else if (inputListener != null) {
       if (inputListener.canSearchInline(InputView.this)) {
         inlineContext.onTextChanged(s, str, selection != null && selection.isEmpty() ? selection.start : -1);
@@ -1300,7 +1298,6 @@ public class InputView extends NoClipEditText implements InlineSearchContext.Cal
     String current = getInput().trim();
     controller.setInputVisible(true, current.length() > 0);
     if (!draft.equals(current)) {
-      ignoreDraft = true;
       setInput(draft, draft.length() > 0, false);
       controller.updateSendButton(draft.toString(), false);
     }
