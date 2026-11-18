@@ -142,6 +142,8 @@
   <string name="ForumMuteDay">Silenciar por 1 dia</string>
   <string name="ForumTopicTitle">Tópico</string>
   <string name="ForumChatTopics">Tópicos</string>
+  <string name="ForumEnableConfirm">Ativar tópicos para todos neste grupo?</string>
+  <string name="ForumDisableConfirm">Desativar tópicos para todos neste grupo?</string>
   <string name="ForumGeneral">Geral</string>
   <string name="ForumPinned">Fixado</string>
   <string name="ForumHidden">Oculto</string>

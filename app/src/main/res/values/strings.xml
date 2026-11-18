@@ -152,6 +152,8 @@
   <string name="ForumMuteDay">Mute for 1 day</string>
   <string name="ForumTopicTitle">Topic</string>
   <string name="ForumChatTopics">Topics</string>
+  <string name="ForumEnableConfirm">Enable topics for everyone in this group?</string>
+  <string name="ForumDisableConfirm">Disable topics for everyone in this group?</string>
   <string name="ForumGeneral">General</string>
   <string name="ForumPinned">Pinned</string>
   <string name="ForumHidden">Hidden</string>

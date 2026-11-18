@@ -1944,6 +1944,7 @@ public class ProfileController extends ViewController<ProfileController.Args> im
           itemId == R.id.btn_toggleProtection ||
           itemId == R.id.btn_toggleJoinByRequest ||
           itemId == R.id.btn_toggleAggressiveAntiSpam ||
+          itemId == R.id.btn_toggleForum ||
           itemId == R.id.btn_toggleHideMembers) {
           view.getToggler().setRadioEnabled(item.isSelected(), isUpdate);
         }
@@ -3327,6 +3328,74 @@ public class ProfileController extends ViewController<ProfileController.Args> im
     }
   }
 
+  // region @MadeByLLM("gpt-6.2-sol", id = "forum-group-setting")
+  private boolean forumChangePending;
+
+  private boolean canToggleForum () {
+    return mode == Mode.EDIT_SUPERGROUP && supergroup != null &&
+      !supergroup.isChannel && !supergroup.isBroadcastGroup && !supergroup.isDirectMessagesGroup &&
+      !supergroup.hasLinkedChat && TD.isCreator(supergroup.status);
+  }
+
+  private ListItem newForumSetting () {
+    return new ListItem(
+      ListItem.TYPE_RADIO_SETTING,
+      R.id.btn_toggleForum,
+      0,
+      R.string.ForumChatTopics,
+      supergroup.isForum
+    );
+  }
+
+  private void updateForumSetting () {
+    int index = baseAdapter.indexOfViewById(R.id.btn_toggleForum);
+    if (canToggleForum()) {
+      if (index != -1) {
+        baseAdapter.getItems().get(index).setSelected(supergroup.isForum);
+        baseAdapter.updateValuedSettingByPosition(index);
+      } else {
+        int permissionsIndex = baseAdapter.indexOfViewById(R.id.btn_chatPermissions);
+        if (permissionsIndex != -1) {
+          baseAdapter.getItems().add(permissionsIndex, newForumSetting());
+          baseAdapter.getItems().add(permissionsIndex + 1,
+            new ListItem(ListItem.TYPE_SEPARATOR_FULL));
+          baseAdapter.notifyItemRangeInserted(permissionsIndex, 2);
+          onItemsHeightProbablyChanged();
+        }
+      }
+    } else if (index != -1) {
+      baseAdapter.removeRange(index, 2);
+      onItemsHeightProbablyChanged();
+    }
+  }
+
+  private void toggleForum () {
+    if (!canToggleForum() || forumChangePending) {
+      return;
+    }
+    boolean enable = !supergroup.isForum;
+    showConfirm(
+      Lang.getString(enable ? R.string.ForumEnableConfirm : R.string.ForumDisableConfirm),
+      null,
+      () -> {
+        if (!canToggleForum() || forumChangePending || supergroup.isForum == enable) {
+          return;
+        }
+        forumChangePending = true;
+        tdlib.send(
+          new TdApi.ToggleSupergroupIsForum(supergroup.id, enable, false, false),
+          (ok, error) -> runOnUiThreadOptional(() -> {
+            forumChangePending = false;
+            if (error != null) {
+              UI.showError(error);
+            }
+          })
+        );
+      }
+    );
+  }
+  // endregion
+
   private void toggleContentProtection (View v) {
     if (tdlib.canToggleContentProtection(chat.id)) {
       boolean enabled = baseAdapter.toggleView(v);
@@ -4017,6 +4086,11 @@ public class ProfileController extends ViewController<ProfileController.Args> im
       items.add(new ListItem(ListItem.TYPE_VALUED_SETTING, R.id.btn_prehistoryMode, 0, R.string.ChatHistory));
       added = true;
     }
+    if (canToggleForum()) {
+      items.add(new ListItem(added ? ListItem.TYPE_SEPARATOR_FULL : ListItem.TYPE_SHADOW_TOP));
+      items.add(newForumSetting());
+      added = true;
+    }
     if (!isChannel() && mode != Mode.EDIT_BOT_USER) {
       items.add(new ListItem(added ? ListItem.TYPE_SEPARATOR_FULL : ListItem.TYPE_SHADOW_TOP));
       items.add(new ListItem(ListItem.TYPE_VALUED_SETTING, R.id.btn_chatPermissions, 0, R.string.ChatPermissions));
@@ -4247,6 +4321,8 @@ public class ProfileController extends ViewController<ProfileController.Args> im
         baseAdapter.updateValuedSettingById(R.id.btn_channelType);
         baseAdapter.updateValuedSettingById(R.id.btn_linkedChat);
         checkPrehistory();
+        updateForumSetting();
+        baseAdapter.updateValuedSettingById(R.id.btn_chatPermissions);
         break;
       }
       case Mode.EDIT_CHANNEL: {
@@ -4912,6 +4988,8 @@ public class ProfileController extends ViewController<ProfileController.Args> im
       toggleContentProtection(v);
     } else if (viewId == R.id.btn_toggleJoinByRequest) {
       toggleJoinByRequests(v);
+    } else if (viewId == R.id.btn_toggleForum) {
+      toggleForum();
     } else if (viewId == R.id.btn_convertToBroadcastGroup) {
       showOptions(
         Lang.getMarkdownString(this, R.string.ConvertToBroadcastGroupHint),
