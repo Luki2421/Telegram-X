@@ -62,7 +62,7 @@ jobs:
             sed -i "s|^telegram.api_id=.*|telegram.api_id=$API_ID|" local.properties
             sed -i "s|^telegram.api_hash=.*|telegram.api_hash=$API_HASH|" local.properties
           fi
-          echo "org.gradle.workers.max=$(nproc)" >> local.properties
+          printf '\norg.gradle.workers.max=%s\n' "$(nproc)" >> local.properties
           cat local.properties | grep -v api_hash
 
       - uses: gradle/actions/setup-gradle@v4
