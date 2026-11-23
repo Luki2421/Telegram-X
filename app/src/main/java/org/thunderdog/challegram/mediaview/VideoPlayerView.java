@@ -73,6 +73,8 @@ import me.vkryl.core.StringUtils;
 import me.vkryl.core.lambda.CancellableRunnable;
 import tgx.player.OriginalVideoFailures;
 import tgx.player.VideoDecoders;
+import moe.kirao.mgx.MoexConfig;
+import moe.kirao.mgx.utils.AudioFocusHelper;
 import tgx.td.data.HlsVideo;
 
 public class VideoPlayerView implements Player.Listener, CallManager.CurrentCallListener, Runnable {
@@ -98,6 +100,10 @@ public class VideoPlayerView implements Player.Listener, CallManager.CurrentCall
   }
 
   private final ErrorHandler errorHandler;
+
+  private final AudioFocusHelper videoFocus = new AudioFocusHelper(
+    MoexConfig.AUTO_PAUSE_MEDIA_VIDEO,
+    () -> setPlaying(false));
 
   public VideoPlayerView (Context context, ViewGroup parentView, int addIndex, boolean enableCropping, ErrorHandler onError) {
     this.context = context;
@@ -651,8 +657,12 @@ public class VideoPlayerView implements Player.Listener, CallManager.CurrentCall
       this.isPlaying = isPlaying;
       if (isPlaying) {
         updateTimes();
+        if (currentItem == null || !currentItem.needMute()) {
+          videoFocus.request();
+        }
       } else {
         seekHandler.removeMessages(0);
+        videoFocus.abandon();
       }
       if (player != null) {
         player.setPlayWhenReady(isPlaying);

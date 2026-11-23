@@ -2175,7 +2175,7 @@ public abstract class BaseActivity extends FragmentActivity implements View.OnTo
 
   // ReactionPreview
 
-  public void openReactionPreview (Tdlib tdlib, StickerSmallView stickerView, TGReaction reaction, @Nullable TGStickerObj effectAnimation, int cx, int cy, int maxWidth, int viewportHeight, boolean disableEmojis) {
+  public void openReactionPreview (Tdlib tdlib, StickerSmallView stickerView, TGReaction reaction, @Nullable TGStickerObj effectAnimation, int cx, int cy, int maxWidth, int viewportHeight, boolean disableEmojis, @Nullable Runnable onInterrupt) {
     if (stickerPreview != null) {
       return;
     }
@@ -2185,6 +2185,7 @@ public abstract class BaseActivity extends FragmentActivity implements View.OnTo
     stickerPreview = new StickerPreviewView(this);
     stickerPreview.setControllerView(stickerView);
     stickerPreview.setReaction(tdlib, reaction, effectAnimation, cx, cy, maxWidth, viewportHeight, disableEmojis);
+    stickerPreview.setOnInterruptListener(onInterrupt);
 
     stickerPreviewWindow = new PopupLayout(this);
     stickerPreviewWindow.setBackListener(stickerPreview);

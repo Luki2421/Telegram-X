@@ -3,7 +3,7 @@ name: Build TGX-Next APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, moegram-features]
 
 jobs:
   build:
@@ -72,5 +72,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tgx-next-arm64-debug
+          name: tgx-next-${{ github.ref_name }}-arm64-debug
           path: app/build/outputs/apk/**/*.apk

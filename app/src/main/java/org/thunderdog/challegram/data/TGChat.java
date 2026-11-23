@@ -66,6 +66,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import moe.kirao.mgx.MoexConfig;
+
 import me.vkryl.android.AnimatorUtils;
 import me.vkryl.android.animator.BounceAnimator;
 import me.vkryl.android.util.MultipleViewProvider;
@@ -986,7 +988,7 @@ public class TGChat implements TdlibStatusManager.HelperTarget, ContentPreview.R
   }
 
   private void setCounter (boolean allowAnimation) {
-    boolean hasReactions = hasUnreadReactions();
+    boolean hasReactions = hasUnreadReactions() && !MoexConfig.disableReactions;
     boolean hasMentions = hasUnreadMentions();
     int unreadCount = getUnreadCount();
 
@@ -1160,7 +1162,7 @@ public class TGChat implements TdlibStatusManager.HelperTarget, ContentPreview.R
   }
 
   public boolean needDrawReactionsPreview () {
-    return isPrivate() && !isSelfChat() && !showDraft();
+    return isPrivate() && !isSelfChat() && !showDraft() && !MoexConfig.disableReactions;
   }
 
   public @Nullable EmojiStatusHelper.EmojiStatusDrawable getEmojiStatus () {

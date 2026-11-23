@@ -4062,6 +4062,14 @@ public class TD {
       return new DownloadedFile(tdlib, voice.voice, voice.mimeType, new TdApi.FileTypeVoiceNote());
     }
 
+    public static DownloadedFile valueOf (Tdlib tdlib, TdApi.Sticker sticker, String mime) {
+      return new DownloadedFile(tdlib, sticker.sticker, mime, new TdApi.FileTypeSticker());
+    }
+
+    public static DownloadedFile valueOf (Tdlib tdlib, TdApi.VideoNote videoNote) {
+      return new DownloadedFile(tdlib, videoNote.video, "video/mp4", new TdApi.FileTypeVideoNote());
+    }
+
     public int getFileId () {
       return file.id;
     }
@@ -4681,6 +4689,28 @@ public class TD {
         }
         return null;
       }
+      case TdApi.MessageSticker.CONSTRUCTOR: {
+        TdApi.Sticker sticker = ((TdApi.MessageSticker) msg.content).sticker;
+        if (sticker != null && TD.isFileLoaded(sticker.sticker)) {
+          String mime = U.resolveMimeType(sticker.sticker.local.path);
+          return DownloadedFile.valueOf(tdlib, sticker, mime);
+        }
+        return null;
+      }
+      case TdApi.MessageVoiceNote.CONSTRUCTOR: {
+        TdApi.VoiceNote voiceNote = ((TdApi.MessageVoiceNote) msg.content).voiceNote;
+        if (voiceNote != null && TD.isFileLoaded(voiceNote.voice)) {
+          return DownloadedFile.valueOf(tdlib, voiceNote);
+        }
+        return null;
+      }
+      case TdApi.MessageVideoNote.CONSTRUCTOR: {
+        TdApi.VideoNote videoNote = ((TdApi.MessageVideoNote) msg.content).videoNote;
+        if (videoNote != null && TD.isFileLoaded(videoNote.video)) {
+          return DownloadedFile.valueOf(tdlib, videoNote);
+        }
+        return null;
+      }
     }
     return null;
   }
@@ -4700,7 +4730,7 @@ public class TD {
         break;
       }
       default: {
-        destDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        destDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), BuildConfig.PROJECT_NAME);
         break;
       }
     }
@@ -4761,7 +4791,7 @@ public class TD {
     if (!sourceFile.exists()) {
       return;
     }
-    final File destDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+    final File destDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), BuildConfig.PROJECT_NAME);
     if (!FileUtils.createDirectory(destDir)) {
       return;
     }
