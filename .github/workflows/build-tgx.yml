@@ -1,0 +1,76 @@
+name: Build TGX-Next APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          df -h /
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+          fetch-depth: 1
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Read versions
+        id: v
+        run: |
+          p() { grep "^$1=" version.properties | cut -d= -f2; }
+          echo "ndk=$(p version.ndk_primary)"        >> $GITHUB_OUTPUT
+          echo "cmake=$(p version.cmake)"            >> $GITHUB_OUTPUT
+          echo "bt=$(p version.build_tools)"         >> $GITHUB_OUTPUT
+          echo "sdk=$(p version.sdk_package)"        >> $GITHUB_OUTPUT
+          echo "rust=$(p version.rust)"              >> $GITHUB_OUTPUT
+
+      - name: Android SDK packages
+        run: |
+          SM=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager
+          yes | $SM --licenses > /dev/null
+          $SM --install "platforms;${{ steps.v.outputs.sdk }}" \
+                        "build-tools;${{ steps.v.outputs.bt }}" \
+                        "ndk;${{ steps.v.outputs.ndk }}" \
+                        "cmake;${{ steps.v.outputs.cmake }}"
+
+      - name: Rust
+        run: |
+          rustup toolchain install "${{ steps.v.outputs.rust }}" --profile minimal --target aarch64-linux-android
+
+      - name: local.properties
+        env:
+          API_ID: ${{ secrets.TG_API_ID }}
+          API_HASH: ${{ secrets.TG_API_HASH }}
+        run: |
+          cp local.properties.sample local.properties
+          sed -i "s|^sdk.dir=.*|sdk.dir=$ANDROID_SDK_ROOT|" local.properties
+          sed -i "s|^rust.dir=.*|rust.dir=$(rustup show home)|" local.properties
+          sed -i "s|^keystore.file=.*|keystore.file=|" local.properties
+          if [ -n "$API_ID" ]; then
+            sed -i "s|^telegram.api_id=.*|telegram.api_id=$API_ID|" local.properties
+            sed -i "s|^telegram.api_hash=.*|telegram.api_hash=$API_HASH|" local.properties
+          fi
+          echo "org.gradle.workers.max=$(nproc)" >> local.properties
+          cat local.properties | grep -v api_hash
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        run: ./gradlew :app:assembleLatestDebug -Pabi=arm64 --no-daemon --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tgx-next-arm64-debug
+          path: app/build/outputs/apk/**/*.apk
