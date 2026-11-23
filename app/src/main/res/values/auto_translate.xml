@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- @MadeByLLM("claude-opus-5-5", id = "chat-auto-translate") -->
+<resources>
+  <item name="btn_chatAutoTranslate" type="id" />
+  <item name="btn_chatAutoTranslateOff" type="id" />
+
+  <string name="ChatAutoTranslate">Translate chat</string>
+  <string name="ChatAutoTranslateOff">Stop translating chat</string>
+  <string name="ChatAutoTranslateEnabled">Translating chat to %1$s</string>
+  <string name="ChatAutoTranslateDisabled">Chat translation disabled</string>
+</resources>

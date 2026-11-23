@@ -2694,6 +2694,11 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
     if (currentViews.attachToView(view) && view != null) {
       onMessageAttachedToView(view, true);
     }
+    // region @MadeByLLM("claude-opus-5-5", id = "chat-auto-translate")
+    if (view != null) {
+      checkAutoTranslation();
+    }
+    // endregion
   }
 
   public final void onDetachedFromView (@Nullable MessageView view) {
@@ -9963,6 +9968,45 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
     translatedCounterForceShow = false;
     mTranslationsManager.stopTranslation();
   }
+
+  // region @MadeByLLM("claude-opus-5-5", id = "chat-auto-translate")
+  private @Nullable String autoTranslateRequestedLanguage;
+
+  /**
+   * Translates this message inline when automatic translation is enabled for its chat.
+   * Messages already in the target language, in a language marked as not translatable,
+   * or translated manually by the user are left untouched.
+   */
+  public void checkAutoTranslation () {
+    final String target = manager.getAutoTranslateLanguage();
+    if (target == null || isSponsoredMessage() || StringUtils.equalsOrBothEmpty(autoTranslateRequestedLanguage, target)) {
+      return;
+    }
+    autoTranslateRequestedLanguage = target;
+    checkTranslatableText(() -> {
+      if (!StringUtils.equalsOrBothEmpty(autoTranslateRequestedLanguage, target) || !isTranslatable()) {
+        return;
+      }
+      if (StringUtils.equalsOrBothEmpty(getOriginalMessageLanguage(), target)) {
+        return;
+      }
+      if (mTranslationsManager.getCurrentTranslatedLanguage() != null) {
+        return;
+      }
+      mTranslationsManager.requestTranslation(target);
+    });
+  }
+
+  public void stopAutoTranslation () {
+    if (autoTranslateRequestedLanguage == null) {
+      return;
+    }
+    autoTranslateRequestedLanguage = null;
+    if (!translatedCounterForceShow) {
+      mTranslationsManager.stopTranslation();
+    }
+  }
+  // endregion
 
   public int translationStyleMode () {
     return manager().getUsedTranslateStyleMode();

@@ -41,6 +41,7 @@ import org.thunderdog.challegram.Log;
 import org.thunderdog.challegram.R;
 import org.thunderdog.challegram.config.Config;
 import org.thunderdog.challegram.core.Lang;
+import org.thunderdog.challegram.data.ChatAutoTranslate;
 import org.thunderdog.challegram.data.TD;
 import org.thunderdog.challegram.data.TGMessage;
 import org.thunderdog.challegram.data.TGMessageBotInfo;
@@ -956,6 +957,9 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
     subscribeForUpdates();
     this.useReactionBubblesValue = checkReactionBubbles();
     this.usedTranslateStyleMode = checkTranslateStyleMode();
+    // region @MadeByLLM("claude-opus-5-5", id = "chat-auto-translate")
+    this.autoTranslateLanguage = chat != null ? ChatAutoTranslate.getLanguage(tdlib.id(), chat.id) : null;
+    // endregion
     this.wasScrollByUser = false;
   }
 
@@ -1180,8 +1184,45 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
   }
 
   public int getUsedTranslateStyleMode () {
+    // region @MadeByLLM("claude-opus-5-5", id = "chat-auto-translate")
+    if (autoTranslateLanguage != null) {
+      return Settings.TRANSLATE_MODE_INLINE;
+    }
+    // endregion
     return usedTranslateStyleMode;
   }
+
+  // region @MadeByLLM("claude-opus-5-5", id = "chat-auto-translate")
+  private @Nullable String autoTranslateLanguage;
+
+  public @Nullable String getAutoTranslateLanguage () {
+    return autoTranslateLanguage;
+  }
+
+  public boolean isAutoTranslateEnabled () {
+    return autoTranslateLanguage != null;
+  }
+
+  public void setAutoTranslateLanguage (@Nullable String language) {
+    final long chatId = loader.getChatId();
+    if (chatId == 0 || StringUtils.equalsOrBothEmpty(autoTranslateLanguage, language)) {
+      return;
+    }
+    this.autoTranslateLanguage = StringUtils.isEmpty(language) ? null : language;
+    ChatAutoTranslate.setLanguage(tdlib.id(), chatId, autoTranslateLanguage);
+    ArrayList<TGMessage> items = adapter.getItems();
+    if (items != null) {
+      for (TGMessage item : items) {
+        if (autoTranslateLanguage != null) {
+          item.checkAutoTranslation();
+        } else {
+          item.stopAutoTranslation();
+        }
+      }
+    }
+    rebuildLayouts();
+  }
+  // endregion
 
   @Nullable
   @Override

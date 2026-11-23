@@ -121,7 +121,18 @@ public final class TranslationsManager {
   }
 
   private void requestTranslationImpl (TdApi.FormattedText originalText, String toLanguage, Client.ResultHandler callback) {
-    tdlib.client().send(new TdApi.TranslateText(originalText, toLanguage, TdConstants.TEXT_FORMAT_NEUTRAL), callback);
+    tdlib.client().send(new TdApi.TranslateText(originalText, toLanguage, TdConstants.TEXT_FORMAT_NEUTRAL), result -> {
+      // region @MadeByLLM("claude-opus-5-5", id = "chat-auto-translate")
+      if (result instanceof TdApi.Error) {
+        // Server translation can be unavailable or rate-limited: fall back to Google Translate
+        ChatAutoTranslate.translateWithGoogleAsync(originalText.text, toLanguage, translated ->
+          callback.onResult(translated != null ? new TdApi.FormattedText(translated, new TdApi.TextEntity[0]) : result)
+        );
+        return;
+      }
+      // endregion
+      callback.onResult(result);
+    });
   }
 
 

@@ -2450,6 +2450,17 @@ public class MessagesController extends ViewController<MessagesController.Argume
       return;
     }
     // endregion
+    // region @MadeByLLM("claude-opus-5-5", id = "chat-auto-translate")
+    if (id == R.id.btn_chatAutoTranslate) {
+      showChatAutoTranslateLanguagePicker();
+      return;
+    }
+    if (id == R.id.btn_chatAutoTranslateOff) {
+      manager.setAutoTranslateLanguage(null);
+      UI.showToast(R.string.ChatAutoTranslateDisabled, Toast.LENGTH_SHORT);
+      return;
+    }
+    // endregion
     if (tdlib.ui().processLeaveButton(this, null, getChatId(), id, null)) {
       return;
     }
@@ -5760,6 +5771,14 @@ public class MessagesController extends ViewController<MessagesController.Argume
       strings.append(R.string.Search);
     }
 
+    // region @MadeByLLM("claude-opus-5-5", id = "chat-auto-translate")
+    if (!messagesHidden && !isSecretChat()) {
+      final boolean autoTranslate = manager.isAutoTranslateEnabled();
+      ids.append(autoTranslate ? R.id.btn_chatAutoTranslateOff : R.id.btn_chatAutoTranslate);
+      strings.append(autoTranslate ? R.string.ChatAutoTranslateOff : R.string.ChatAutoTranslate);
+    }
+    // endregion
+
     if ((!tdlib.isChannel(chat.id) || (status != null && !TD.isLeft(status))) &&
       !tdlib.isSelfChat(chat.id) && (!tdlib.isForum(chat.id) ||
         forumTopicContext != null && forumTopicContext.topic() != null &&
@@ -5826,6 +5845,24 @@ public class MessagesController extends ViewController<MessagesController.Argume
 
     showMore(ids.get(), strings.get(), 0);
   }
+
+  // region @MadeByLLM("claude-opus-5-5", id = "chat-auto-translate")
+  private void showChatAutoTranslateLanguagePicker () {
+    final String suggested = Lang.getDefaultLanguageToTranslateV2(null);
+    final TranslationControllerV2.LanguageSelectorPopup popup = new TranslationControllerV2.LanguageSelectorPopup(context(), this, language -> {
+      manager.setAutoTranslateLanguage(language);
+      UI.showToast(Lang.getString(R.string.ChatAutoTranslateEnabled, Lang.getLanguageName(language, language)), Toast.LENGTH_SHORT);
+    }, suggested, null);
+    final int popupWidth = Screen.dp(TranslationControllerV2.LanguageSelectorPopup.WIDTH + TranslationControllerV2.LanguageSelectorPopup.PADDING * 2);
+    popup.languageRecyclerWrap.setTranslationX(Math.max(Screen.currentWidth() - popupWidth, 0));
+    popup.languageRecyclerWrap.setTranslationY(HeaderView.getTopOffset());
+    FrameLayoutFix.LayoutParams params = (FrameLayoutFix.LayoutParams) popup.languageRecyclerWrap.getLayoutParams();
+    params.gravity = Gravity.TOP | Gravity.LEFT;
+    popup.show();
+    popup.languageRecyclerWrap.setPivotX(popupWidth - Screen.dp(TranslationControllerV2.LanguageSelectorPopup.PADDING));
+    popup.languageRecyclerWrap.setPivotY(Screen.dp(TranslationControllerV2.LanguageSelectorPopup.PADDING));
+  }
+  // endregion
 
   // Clear history
 
