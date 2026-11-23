@@ -7,7 +7,6 @@ import android.widget.Toast;
 import org.thunderdog.challegram.R;
 import org.thunderdog.challegram.U;
 import org.thunderdog.challegram.component.base.SettingView;
-import org.thunderdog.challegram.config.Config;
 import org.thunderdog.challegram.core.Lang;
 import org.thunderdog.challegram.navigation.SettingsWrapBuilder;
 import org.thunderdog.challegram.telegram.Tdlib;
@@ -423,14 +422,11 @@ public class SettingsMoexController extends RecyclerViewController<SettingsMoexC
         items.add(new ListItem(ListItem.TYPE_RADIO_SETTING, R.id.btn_hideMessagesBadge, 0, R.string.hideMessagesBadge));
         items.add(new ListItem(ListItem.TYPE_SEPARATOR_FULL));
         items.add(new ListItem(ListItem.TYPE_VALUED_SETTING_COMPACT, R.id.btn_headerText, 0, R.string.changeHeaderText));
-        if (Config.EDGE_TO_EDGE_AVAILABLE) {
-          items.add(new ListItem(ListItem.TYPE_SEPARATOR_FULL));
-          items.add(new ListItem(ListItem.TYPE_RADIO_SETTING, R.id.btn_toggleEdgeAnimSide, 0, R.string.RightSwipeEdgeAnimation).setLongId(Settings.SETTING_FLAG_FORCE_DEFAULT_ANIMATION_FOR_RIGHT_SWIPE_EDGE).setBoolValue(true));
-        }
+        // Edge-to-edge is always available on Android 13+
+        items.add(new ListItem(ListItem.TYPE_SEPARATOR_FULL));
+        items.add(new ListItem(ListItem.TYPE_RADIO_SETTING, R.id.btn_toggleEdgeAnimSide, 0, R.string.RightSwipeEdgeAnimation).setLongId(Settings.SETTING_FLAG_FORCE_DEFAULT_ANIMATION_FOR_RIGHT_SWIPE_EDGE).setBoolValue(true));
         items.add(new ListItem(ListItem.TYPE_SHADOW_BOTTOM));
-        if (Config.EDGE_TO_EDGE_AVAILABLE) {
-          items.add(new ListItem(ListItem.TYPE_DESCRIPTION, 0, 0, R.string.RightSwipeEdgeAnimationInfo));
-        }
+        items.add(new ListItem(ListItem.TYPE_DESCRIPTION, 0, 0, R.string.RightSwipeEdgeAnimationInfo));
 
         items.add(new ListItem(ListItem.TYPE_HEADER, 0, 0, R.string.ProfileOptions));
         items.add(new ListItem(ListItem.TYPE_SHADOW_TOP));
