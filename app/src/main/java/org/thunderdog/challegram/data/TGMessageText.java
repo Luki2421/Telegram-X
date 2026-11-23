@@ -462,8 +462,7 @@ public class TGMessageText extends TGMessage {
     this.maxWidth = maxWidth;
 
     final boolean wrapCodeBlocks = needWrapCodeBlocks();
-    for (int i = 0; i < visibleText.size(); i++) {
-      final ListAnimator.Entry<TextWrapper> entry = visibleText.getEntry(i);
+    for (ListAnimator.Entry<TextWrapper> entry : visibleText) {
       entry.item.setTextFlagEnabled(Text.FLAG_WRAP_CODE_BLOCKS, wrapCodeBlocks);
       entry.item.prepare(maxWidth);
     }
@@ -631,8 +630,7 @@ public class TGMessageText extends TGMessage {
     final int codeBlockEnd = useBubbles() ?
       getActualRightContentEdge() - getBubbleContentPadding() :
       Text.NO_CODE_BLOCK_END;
-    for (int i = 0; i < visibleText.size(); i++) {
-      final ListAnimator.Entry<TextWrapper> entry = visibleText.getEntry(i);
+    for (ListAnimator.Entry<TextWrapper> entry : visibleText) {
       final int startXRtl = getStartXRtl(entry.item, startX, maxWidth);
       entry.item.setCodeBlockEnd(codeBlockEnd);
       boolean needClip = entry.getVisibility() != 1f && useBubbles();
